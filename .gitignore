@@ -39,3 +39,8 @@ Desktop.ini
 # 环境变量与密钥
 .env
 .env.*
+
+# Android / Buildozer 构建产物
+mobile/.buildozer/
+mobile/.venv-android/
+mobile/bin/

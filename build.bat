@@ -22,13 +22,18 @@ echo [2/4] 安装依赖...
 echo [3/4] 生成应用图标...
 "%PY%" make_icon.py
 
-echo [4/4] 使用 PyInstaller 打包...
+echo [4/5] 使用 PyInstaller 打包...
 "%PY%" -m PyInstaller --noconfirm --clean WALL-E.spec
+
+echo [5/5] 生成 MSI 安装包...
+call build_msi.bat silent
 
 echo.
 echo ============================================================
-echo  打包完成！可执行文件位于： dist\WALL-E.exe
-echo  双击即可运行，瓦力会出现在桌面右下角。
+echo  打包完成！
+echo    exe: dist\WALL-E.exe
+echo    msi: dist\WALL-E.msi  （若构建成功）
+echo  也可单独运行 build_msi.bat 重新生成 MSI。
 echo ============================================================
 pause
 endlocal

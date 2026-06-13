@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .animator import SpriteAnimator
+from .i18n import on_language_changed, rest_tips, tr
 from .pomodoro import PomodoroTimer
 
 
@@ -34,13 +35,6 @@ class RestOverlay(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        self._tips = [
-            "看看远处，让眼睛休息一下吧 👀",
-            "起来走动走动，喝口水～ 💧",
-            "伸个懒腰，放松肩颈 🧘",
-            "深呼吸，瓦力陪你一起放松 🌿",
-            "离开屏幕，眺望窗外的世界 🌤️",
-        ]
         self._tip_index = 0
 
         root = QVBoxLayout(self)
@@ -48,10 +42,12 @@ class RestOverlay(QWidget):
         root.setSpacing(18)
 
         self.sprite_label = QLabel()
+        self.sprite_label.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.sprite_label.setStyleSheet("background: transparent;")
         self.sprite_label.setAlignment(Qt.AlignCenter)
         root.addWidget(self.sprite_label, 0, Qt.AlignCenter)
 
-        self.title = QLabel("休息时间到啦！")
+        self.title = QLabel(tr("rest.title"))
         tf = QFont()
         tf.setPointSize(34)
         tf.setBold(True)
@@ -60,7 +56,7 @@ class RestOverlay(QWidget):
         self.title.setAlignment(Qt.AlignCenter)
         root.addWidget(self.title)
 
-        self.tip = QLabel(self._tips[0])
+        self.tip = QLabel(rest_tips()[0])
         tipf = QFont()
         tipf.setPointSize(16)
         self.tip.setFont(tipf)
@@ -79,7 +75,7 @@ class RestOverlay(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
-        self.btn_end = QPushButton("✔ 我休息好了，提前结束")
+        self.btn_end = QPushButton(tr("rest.end_btn"))
         self.btn_end.setStyleSheet(
             "QPushButton{background:#c88a3a;color:#2b2622;border:none;"
             "border-radius:10px;padding:14px 28px;font-size:16px;font-weight:bold;}"
@@ -96,10 +92,25 @@ class RestOverlay(QWidget):
 
         # 动画播放器（尺寸在 show_overlay 时根据屏幕设置）
         self.animator = SpriteAnimator(self.sprite_label, size=240)
+        on_language_changed(self.retranslate_ui)
+
+    def _tips(self) -> list[str]:
+        return rest_tips()
+
+    def retranslate_ui(self) -> None:
+        self.title.setText(tr("rest.title"))
+        self.btn_end.setText(tr("rest.end_btn"))
+        tips = self._tips()
+        if tips:
+            self._tip_index = min(self._tip_index, len(tips) - 1)
+            self.tip.setText(tips[self._tip_index])
 
     def _rotate_tip(self) -> None:
-        self._tip_index = (self._tip_index + 1) % len(self._tips)
-        self.tip.setText(self._tips[self._tip_index])
+        tips = self._tips()
+        if not tips:
+            return
+        self._tip_index = (self._tip_index + 1) % len(tips)
+        self.tip.setText(tips[self._tip_index])
 
     def show_overlay(self, total_seconds: int) -> None:
         screen = QGuiApplication.primaryScreen().geometry()

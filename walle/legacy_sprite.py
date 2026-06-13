@@ -148,7 +148,6 @@ def _draw_eyes(p: QPainter, state: str, blink: bool) -> None:
 
         # 镜头内的发光与瞳孔
         if state == "rest":
-            # 眯眼（半圆）
             p.setBrush(EYE_GLOW)
             path = QPainterPath()
             path.moveTo(cx - 8, 18)
@@ -158,8 +157,7 @@ def _draw_eyes(p: QPainter, state: str, blink: bool) -> None:
         else:
             p.setBrush(EYE_GLOW)
             p.drawEllipse(QPointF(cx, 18), 6, 6)
-            # 高光
-            p.setBrush(QColor(255, 255, 255, 230))
+            p.setBrush(QColor(255, 255, 255, 200))
             p.drawEllipse(QPointF(cx + 2, 16), 2.2, 2.2)
 
         if state == "happy":

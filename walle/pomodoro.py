@@ -25,6 +25,7 @@ class PomodoroTimer(QObject):
     tick = Signal(int, object, int, int)
     state_changed = Signal(object)   # PomodoroState
     rest_started = Signal(int)       # 休息时长(秒)
+    rest_approaching = Signal()      # 工作段剩余 2 分钟
     rest_ended = Signal()
     work_started = Signal(int, int)  # 当前循环, 总循环
     finished = Signal()
@@ -42,6 +43,7 @@ class PomodoroTimer(QObject):
         self.state = PomodoroState.IDLE
         self.current_cycle = 0
         self.remaining = 0
+        self._rest_warned = False
 
     # ------------------------------------------------------------------ 配置
     def configure(self, work_minutes: int, rest_minutes: int, cycles: int) -> None:
@@ -96,6 +98,7 @@ class PomodoroTimer(QObject):
     # ------------------------------------------------------------------ 内部
     def _enter_working(self) -> None:
         self.remaining = self.work_seconds
+        self._rest_warned = False
         self._set_state(PomodoroState.WORKING)
         self.work_started.emit(self.current_cycle, self.total_cycles)
         self._emit_tick()
@@ -127,6 +130,13 @@ class PomodoroTimer(QObject):
             self.state_changed.emit(state)
 
     def _on_tick(self) -> None:
+        if (
+            self.state == PomodoroState.WORKING
+            and self.remaining == 120
+            and not self._rest_warned
+        ):
+            self._rest_warned = True
+            self.rest_approaching.emit()
         self.remaining -= 1
         if self.remaining <= 0:
             if self.state == PomodoroState.WORKING:

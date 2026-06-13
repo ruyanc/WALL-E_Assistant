@@ -14,14 +14,25 @@ from typing import Any, Dict
 
 def get_data_dir() -> Path:
     """返回应用的数据目录，不存在时自动创建。"""
-    base = os.environ.get("APPDATA") or str(Path.home())
-    data_dir = Path(base) / "WALL-E"
+    import sys
+
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or Path.home())
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME")
+        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    data_dir = base / "WALL-E"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
 
 CONFIG_PATH = get_data_dir() / "settings.json"
 TODO_PATH = get_data_dir() / "todos.json"
+NOTES_PATH = get_data_dir() / "notes.json"
+NOTES_LEGACY_PATH = get_data_dir() / "notes.txt"
+REMINDERS_PATH = get_data_dir() / "reminders.json"
 
 # 默认设置
 DEFAULTS: Dict[str, Any] = {
@@ -32,12 +43,14 @@ DEFAULTS: Dict[str, Any] = {
     # 宠物窗口位置（None 表示首次启动放到右下角）
     "pet_x": None,
     "pet_y": None,
-    # 宠物尺寸（像素，正方形边长）
+    # 宠物显示宽度（像素，高度按帧比例自动计算）
     "pet_size": 160,
     # 开机自启动（仅作为标记，实际由安装程序/快捷方式控制）
     "autostart": False,
     # 休息提醒是否带声音提示
     "rest_sound": True,
+    # 界面语言：zh 简体中文 / en English
+    "language": "zh",
 }
 
 
