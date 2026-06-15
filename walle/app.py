@@ -5,13 +5,13 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QObject
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .activity_monitor import ActivityMonitor
 from .config import Config
 from .icon_util import app_icon
-from .i18n import init_language, on_language_changed, set_language, tr
+from .i18n import init_language, on_language_changed, set_language, tab_label, tr
 from .control_panel import ControlPanel
 from .notes_manager import NotesManager
 from .pet_window import PetWindow
@@ -32,6 +32,8 @@ class WalleApp(QObject):
         self.config = Config()
         init_language(self.config.get("language"))
         self.app.setApplicationName(application_display_name())
+        if sys.platform == "darwin":
+            QGuiApplication.setApplicationDisplayName(application_display_name())
         self.todo = TodoManager()
         self.notes = NotesManager()
         self.reminders = ReminderManager()
@@ -92,9 +94,9 @@ class WalleApp(QObject):
         menu.addAction(tr("tray.open_panel"), self._show_panel)
         menu.addAction(tr("tray.toggle_pet"), self._toggle_pet)
         menu.addSeparator()
-        menu.addAction(tr("tray.start_timer"), self._start_timer)
-        menu.addAction(tr("tray.rest_now"), self._start_rest)
-        menu.addAction(tr("tray.stop_timer"), self.timer.stop)
+        menu.addAction(tab_label("tray.start_timer"), self._start_timer)
+        menu.addAction(tab_label("tray.rest_now"), self._start_rest)
+        menu.addAction(tab_label("tray.stop_timer"), self.timer.stop)
         menu.addSeparator()
         quit_action = QAction(tr("tray.quit"), self)
         quit_action.triggered.connect(self.quit)
@@ -109,6 +111,8 @@ class WalleApp(QObject):
         self.panel.retranslate_ui()
         self.overlay.retranslate_ui()
         self.app.setApplicationName(application_display_name())
+        if sys.platform == "darwin":
+            QGuiApplication.setApplicationDisplayName(application_display_name())
 
     def _on_tray_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.Trigger:

@@ -499,6 +499,8 @@ A: Yes. **Windows and macOS** desktop apps support CloudBase with the same auth 
 
 ## 15. Other Platforms
 
+> **Mobile (Android):** The phone app is **under active development and not yet feature-complete** for general use. Prefer **Windows / macOS** for daily use. Developer docs: [mobile/BUILD_ANDROID.md](mobile/BUILD_ANDROID.md) · [mobile/操作手册.md](mobile/操作手册.md) (Chinese).
+
 | Platform | Documentation |
 | --- | --- |
 | Chinese desktop guide | [操作手册.md](操作手册.md) |
@@ -522,8 +524,10 @@ A: Yes. **Windows and macOS** desktop apps support CloudBase with the same auth 
 
 ### First-time setup
 
+> **Current auth code (CloudBase env ID):** `wall-e-d2gkz50u90bf68fa9` — enter this in **☁️ Account** → **Save auth code** (same for all devices).
+
 1. Open **WALL-E Assistant** → **☁️ Account**.
-2. Enter the **auth code** (CloudBase env ID) from your admin → **Save auth code**.
+2. Enter the **auth code** above (or from your admin) → **Save auth code**.
 3. Sign in via **password**, **SMS code**, or **new user registration** (phone + password + SMS).
 4. Click **Sign in & sync**. Data is pulled from the cloud after success.
 

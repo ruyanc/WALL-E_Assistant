@@ -14,7 +14,7 @@ from .config import Config
 from .platform import menu_font_family
 from .assignment_badges import AssignmentBadgeColumn
 from .todo_bulbs import TodoBulbBar
-from .i18n import priority_short, tr
+from .i18n import priority_short, tab_label, tr
 from .todo_manager import TodoManager
 from .window_util import raise_window_topmost
 
@@ -372,8 +372,8 @@ class PetWindow(QWidget):
         )
         menu.addAction(tr("pet.menu.open_panel"), self.open_panel.emit)
         menu.addSeparator()
-        menu.addAction(tr("pet.menu.start_timer"), self.start_timer.emit)
-        menu.addAction(tr("pet.menu.rest_now"), self.start_rest.emit)
+        menu.addAction(tab_label("pet.menu.start_timer"), self.start_timer.emit)
+        menu.addAction(tab_label("pet.menu.rest_now"), self.start_rest.emit)
         menu.addSeparator()
         menu.addAction(tr("pet.menu.zoom_in"), lambda: self.set_pet_size(self._size + 20))
         menu.addAction(tr("pet.menu.zoom_out"), lambda: self.set_pet_size(self._size - 20))

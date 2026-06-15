@@ -57,6 +57,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tab.reminders.mac": "提醒",
         "tab.timer": "⏱️ 番茄钟",
         "tab.timer.mac": "番茄钟",
+        "tab.account.mac": "账号",
+        "panel.title.mac": "WALL-E",
+        "panel.header.logged_in.mac": "{account} · WALL-E",
+        "todo.subtab.inbox.mac": "派给我",
+        "todo.subtab.outbox.mac": "我派出",
+        "todo.subtab.archive.mac": "归档",
+        "tray.start_timer.mac": "开始番茄钟",
+        "tray.rest_now.mac": "立即休息",
+        "tray.stop_timer.mac": "停止计时",
+        "pet.menu.start_timer.mac": "开始番茄钟",
+        "pet.menu.rest_now.mac": "立即休息",
         "todo.placeholder": "输入新任务，回车添加",
         "todo.add": "添加",
         "todo.hint": "示例：开会-高级，交周报-中级，取快递-低级 · 点击方块完成 · 右侧下拉改优先级 · 点「删」删除 · 已完成任务在「已完成归档」页查看",
@@ -85,10 +96,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prio.high": "高级",
         "prio.med": "中级",
         "prio.low": "低级",
-        "notes.hint": "可添加多条备忘，编辑后自动保存",
+        "notes.hint": "可添加多条备忘；编辑后点「存」保存，保存后需点「编」才能再改",
         "notes.placeholder": "新条目内容，回车或点添加",
         "notes.add": "添加条目",
         "notes.save_all": "全部保存",
+        "notes.save_entry": "存",
+        "notes.save_entry_tip": "保存此条",
+        "notes.edit_entry": "编",
+        "notes.edit_entry_tip": "编辑此条",
         "notes.auto_saved": "已自动保存",
         "notes.saved": "已保存 ✓",
         "notes.empty": "还没有条目，在上方输入后点「添加条目」",
@@ -334,6 +349,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tab.reminders.mac": "Reminders",
         "tab.timer": "⏱️ Pomodoro",
         "tab.timer.mac": "Pomodoro",
+        "tab.account.mac": "Account",
+        "panel.title.mac": "WALL-E",
+        "panel.header.logged_in.mac": "{account} · WALL-E",
+        "todo.subtab.inbox.mac": "To me",
+        "todo.subtab.outbox.mac": "By me",
+        "todo.subtab.archive.mac": "Archive",
+        "tray.start_timer.mac": "Start Pomodoro",
+        "tray.rest_now.mac": "Rest Now",
+        "tray.stop_timer.mac": "Stop Timer",
+        "pet.menu.start_timer.mac": "Start Pomodoro",
+        "pet.menu.rest_now.mac": "Rest Now",
         "todo.placeholder": "New task, press Enter to add",
         "todo.add": "Add",
         "todo.hint": "e.g. Meeting-High, Report-Med, Package-Low · Click square to complete · Priority dropdown · Del button to remove · Completed tasks are in Completed archive",
@@ -362,10 +388,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prio.high": "High",
         "prio.med": "Medium",
         "prio.low": "Low",
-        "notes.hint": "Multiple notes; edits save automatically",
+        "notes.hint": "Add notes below; tap Save on each note to lock it, Edit to change again",
         "notes.placeholder": "New note, Enter or Add",
         "notes.add": "Add note",
         "notes.save_all": "Save all",
+        "notes.save_entry": "Save",
+        "notes.save_entry_tip": "Save this note",
+        "notes.edit_entry": "Edit",
+        "notes.edit_entry_tip": "Edit this note",
         "notes.auto_saved": "Auto-saved",
         "notes.saved": "Saved ✓",
         "notes.empty": "No notes yet — type above and tap Add",
@@ -610,11 +640,11 @@ def tr(key: str, **kwargs: Any) -> str:
 
 
 def tab_label(key: str) -> str:
-    """macOS 菜单栏/标签页使用无 emoji 的短文案，避免截断。"""
+    """macOS 顶栏/标签/菜单优先使用无 emoji 的短文案（*.mac），避免截断或乱码。"""
     import sys
 
-    mac_key = f"{key}.mac"
     if sys.platform == "darwin":
+        mac_key = f"{key}.mac"
         text = tr(mac_key)
         if text != mac_key:
             return text

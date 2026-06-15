@@ -399,7 +399,7 @@ https://{envId}.api.tcloudbasegateway.com/v1/database/instances/(default)/databa
 
 打开控制面板 → **☁️ 账号** 页（中文界面工作台名称为 **瓦力桌面助手**）：
 
-1. 在 **授权码** 输入框填入环境 ID，点击 **保存授权码**
+1. 在 **授权码** 输入框填入环境 ID，点击 **保存授权码**（**当前可用：** `wall-e-d2gkz50u90bf68fa9`）
 2. 输入 **手机号** 与 **密码**（或验证码 / 新用户注册），点击 **登录并同步**
 
 授权码保存在 `%APPDATA%\WALL-E\settings.json` 的 `cloudbase_env_id` 字段。

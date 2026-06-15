@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from .todo_manager import Task
 
-from .config import Config
+from .platform import header_font, is_macos, panel_window_title, ui_font_family
 from .i18n import current, format_todo_archive_day, priority_labels, remind_repeat_options, set_language, tab_label, tr, weekday_name
 from .notes_manager import NoteEntry, NotesManager, format_note_timestamp
 from .pet_window import MAX_PET_SIZE, MIN_PET_SIZE
@@ -62,7 +62,7 @@ from .todo_manager import PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_MED, TodoManager
 if TYPE_CHECKING:
     from .sync.service import SyncService
 
-FONT_FAMILY = '"Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif'
+FONT_FAMILY = ui_font_family()
 
 PRIORITY_VALUES = (PRIORITY_HIGH, PRIORITY_MED, PRIORITY_LOW)
 PRIORITY_INDEX = {PRIORITY_HIGH: 0, PRIORITY_MED: 1, PRIORITY_LOW: 2}
@@ -78,6 +78,15 @@ _ACCOUNT_INPUT_WIDTH = {
     "nickname": 200,
 }
 _ACCOUNT_FIELD_HEIGHT = 34
+
+
+def _configure_mac_tab_bar(tabs: QTabWidget) -> None:
+    if not is_macos():
+        return
+    bar = tabs.tabBar()
+    bar.setElideMode(Qt.TextElideMode.ElideNone)
+    bar.setExpanding(False)
+    bar.setUsesScrollButtons(True)
 
 
 def _account_field(edit: QLineEdit, kind: str) -> QLineEdit:
@@ -145,12 +154,13 @@ QTabWidget::pane {{
 }}
 QTabBar::tab {{
     background: #35302a;
-    padding: 10px 18px;
+    padding: 10px 14px;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
     margin-right: 3px;
     color: #c8baa6;
     font-size: 13px;
+    min-width: 52px;
 }}
 QTabBar::tab:selected {{
     background: #c88a3a;
@@ -210,6 +220,25 @@ QPushButton#deleteBtn:hover {{
     background: #3d2a28;
     color: #e88878;
     border-color: #a05850;
+}}
+QPushButton#noteActionBtn {{
+    background: #35302a;
+    color: #e7dcc8;
+    border: 1px solid #4a4138;
+    border-radius: 4px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: normal;
+    min-height: 22px;
+    max-height: 22px;
+}}
+QPushButton#noteActionBtn:hover {{
+    background: #4a4138;
+    color: #f3ebe0;
+}}
+QFrame#noteCard[locked="true"] QPlainTextEdit {{
+    background: #151311;
+    color: #d8cfc0;
 }}
 QFrame#noteCard {{
     background: #1f1c19;
@@ -303,6 +332,17 @@ def _make_delete_button(tooltip: str, label: str, on_click: Callable[[], None]) 
     btn = QPushButton(label)
     btn.setObjectName("deleteBtn")
     btn.setFixedSize(22, 22)
+    btn.setToolTip(tooltip)
+    btn.clicked.connect(on_click)
+    return btn
+
+
+def _make_note_action_button(tooltip: str, label: str, on_click: Callable[[], None]) -> QPushButton:
+    btn = QPushButton(label)
+    btn.setObjectName("noteActionBtn")
+    btn.setFixedHeight(22)
+    btn.setMinimumWidth(30)
+    btn.setMaximumWidth(44)
     btn.setToolTip(tooltip)
     btn.clicked.connect(on_click)
     return btn
@@ -468,17 +508,22 @@ class NoteResizeHandle(QWidget):
 
 
 class NoteEntryWidget(QFrame):
-    """单条记事：可拖拽高度的正文 + 日期 + 删除。"""
+    """单条记事：可拖拽高度的正文 + 保存/编辑 + 日期 + 删除。"""
 
-    text_changed = Signal(str, str)
-    height_changed = Signal(str, int)
+    save_requested = Signal(str, str, int)
     delete_requested = Signal(str)
 
-    def __init__(self, entry: NoteEntry, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        entry: NoteEntry,
+        *,
+        editing: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("noteCard")
         self._note_id = entry.id
-        self._loading = False
+        self._editing = editing
         self._created = float(entry.created)
         self._updated_at = float(entry.updated_at)
         self._body_height = entry.body_height if entry.body_height > 0 else 72
@@ -489,12 +534,25 @@ class NoteEntryWidget(QFrame):
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(4)
         head.addStretch(1)
+        self.save_btn = _make_note_action_button(
+            tr("notes.save_entry_tip"),
+            tr("notes.save_entry"),
+            self._on_save_clicked,
+        )
+        self.edit_btn = _make_note_action_button(
+            tr("notes.edit_entry_tip"),
+            tr("notes.edit_entry"),
+            self._on_edit_clicked,
+        )
         del_btn = _make_delete_button(
             tr("notes.delete_tip"),
             tr("notes.delete_btn"),
             lambda: self.delete_requested.emit(self._note_id),
         )
+        head.addWidget(self.save_btn, 0, Qt.AlignTop)
+        head.addWidget(self.edit_btn, 0, Qt.AlignTop)
         head.addWidget(del_btn, 0, Qt.AlignTop)
         outer.addLayout(head)
 
@@ -506,7 +564,6 @@ class NoteEntryWidget(QFrame):
         nf = QFont("Microsoft YaHei UI", 13)
         self.edit.setFont(nf)
         self.edit.setFixedHeight(self._body_height)
-        self.edit.textChanged.connect(self._on_text)
         outer.addWidget(self.edit)
 
         self._resize_handle = NoteResizeHandle(self.edit, self)
@@ -520,10 +577,45 @@ class NoteEntryWidget(QFrame):
         self._refresh_dates()
         outer.addWidget(self.dates_label)
 
+        self.set_editing(editing)
+
+    def retranslate(self) -> None:
+        self.save_btn.setText(tr("notes.save_entry"))
+        self.save_btn.setToolTip(tr("notes.save_entry_tip"))
+        self.edit_btn.setText(tr("notes.edit_entry"))
+        self.edit_btn.setToolTip(tr("notes.edit_entry_tip"))
+        self.edit.setPlaceholderText(tr("notes.entry_placeholder"))
+
+    def set_editing(self, editing: bool) -> None:
+        self._editing = editing
+        self.edit.setReadOnly(not editing)
+        self._resize_handle.setEnabled(editing)
+        self._resize_handle.setVisible(editing)
+        self.save_btn.setVisible(editing)
+        self.edit_btn.setVisible(not editing)
+        self.setProperty("locked", not editing)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def _on_save_clicked(self) -> None:
+        if not self._editing:
+            return
+        self._updated_at = time.time()
+        self._refresh_dates()
+        self.save_requested.emit(self._note_id, self.edit.toPlainText(), self._body_height)
+        self.set_editing(False)
+
+    def _on_edit_clicked(self) -> None:
+        if self._editing:
+            return
+        self.set_editing(True)
+        self.edit.setFocus()
+
     def _on_resize_drag(self, height: int) -> None:
+        if not self._editing:
+            return
         self._body_height = height
         self.edit.setFixedHeight(height)
-        self.height_changed.emit(self._note_id, height)
 
     def _refresh_dates(self) -> None:
         created_s = format_note_timestamp(self._created)
@@ -535,15 +627,9 @@ class NoteEntryWidget(QFrame):
                 tr("notes.created_updated", created=created_s, updated=updated_s)
             )
 
-    def _on_text(self) -> None:
-        if self._loading:
-            return
-        self._updated_at = time.time()
-        self._refresh_dates()
-        self.text_changed.emit(self._note_id, self.edit.toPlainText())
-
-    def set_loading(self, loading: bool) -> None:
-        self._loading = loading
+    def commit_if_editing(self) -> None:
+        if self._editing:
+            self._on_save_clicked()
 
     def focus_edit(self) -> None:
         self.edit.setFocus()
@@ -572,18 +658,27 @@ class PriorityBar(QWidget):
 
 
 class TodoItemWidget(QFrame):
-    """待办卡片：勾选 + 色条 + 文本 + 优先级下拉。"""
+    """待办卡片：勾选 + 色条 + 文本 + 优先级（归档页为只读标注）。"""
 
     done_changed = Signal(str, bool)
     priority_changed = Signal(str, int)
     delete_requested = Signal(str)
 
-    _SIDE = 22 + 4 + 8 + 76 + 16 + 30  # 勾选、色条、间距、下拉、边距、删除钮
+    _SIDE_ACTIVE = 22 + 4 + 8 + 76 + 16 + 30  # 勾选、色条、间距、下拉、边距、删除钮
+    _SIDE_ARCHIVE = 22 + 4 + 8 + 44 + 16 + 30  # 归档：优先级文字标注
 
-    def __init__(self, task: Task, list_width: int = 480, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        task: Task,
+        list_width: int = 480,
+        *,
+        archive: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._task_id = task.id
         self._loading = True
+        self._archive = archive
         self._list_width = list_width
         self._apply_card_style(task.done)
 
@@ -612,10 +707,19 @@ class TodoItemWidget(QFrame):
         self.time_label = QLabel(_format_todo_time_lines(task))
         self.time_label.setObjectName("hint")
         self.time_label.setWordWrap(True)
-        self.prio_combo = _make_priority_combo(task.priority, compact=True)
-        self.prio_combo.currentIndexChanged.connect(self._on_priority_index)
+        self.prio_combo: QComboBox | None = None
+        self.prio_label: QLabel | None = None
         meta_row.addWidget(self.time_label, 1)
-        meta_row.addWidget(self.prio_combo, 0, Qt.AlignRight | Qt.AlignTop)
+        if archive:
+            labels = priority_labels()
+            pri_idx = PRIORITY_INDEX.get(task.priority, 1)
+            self.prio_label = QLabel(labels[pri_idx])
+            self.prio_label.setObjectName("hint")
+            meta_row.addWidget(self.prio_label, 0, Qt.AlignRight | Qt.AlignTop)
+        else:
+            self.prio_combo = _make_priority_combo(task.priority, compact=True)
+            self.prio_combo.currentIndexChanged.connect(self._on_priority_index)
+            meta_row.addWidget(self.prio_combo, 0, Qt.AlignRight | Qt.AlignTop)
 
         body.addWidget(self.label)
         body.addLayout(meta_row)
@@ -634,11 +738,14 @@ class TodoItemWidget(QFrame):
         self._loading = False
         self._sync_label_width()
 
+    def _side_width(self) -> int:
+        return self._SIDE_ARCHIVE if self._archive else self._SIDE_ACTIVE
+
     def _apply_card_style(self, done: bool) -> None:
         self.setObjectName("todoCardDone" if done else "todoCard")
 
     def _text_width(self) -> int:
-        return max(120, self._list_width - self._SIDE)
+        return max(120, self._list_width - self._side_width())
 
     def _sync_label_width(self) -> None:
         width = self._text_width()
@@ -660,7 +767,7 @@ class TodoItemWidget(QFrame):
         self.done_changed.emit(self._task_id, done)
 
     def _on_priority_index(self, index: int) -> None:
-        if self._loading:
+        if self._loading or self.prio_combo is None:
             return
         if 0 <= index < len(PRIORITY_VALUES):
             pri = PRIORITY_VALUES[index]
@@ -942,7 +1049,12 @@ class ControlPanel(QWidget):
         self._layout_refresh_timer.timeout.connect(self._flush_layout_sensitive_lists)
         self._env_editing = not (self.sync and self.sync.user_env_saved)
 
-        self.setWindowTitle(tr("panel.title"))
+        self.setWindowTitle(
+            panel_window_title(
+                logged_in=bool(self.sync and self.sync.is_logged_in),
+                account=self.sync.phone if self.sync and self.sync.is_logged_in else None,
+            )
+        )
         self.resize(600, 820)
         self.setMinimumSize(560, 680)
         self.setStyleSheet(STYLE)
@@ -952,13 +1064,12 @@ class ControlPanel(QWidget):
         root.setSpacing(10)
 
         self.header = QLabel(tr("panel.header"))
-        hf = QFont("Microsoft YaHei UI", 16)
-        hf.setBold(True)
-        self.header.setFont(hf)
+        self.header.setFont(header_font())
         self.header.setStyleSheet("color: #c88a3a; padding-bottom: 2px;")
         root.addWidget(self.header)
 
         self.tabs = QTabWidget()
+        _configure_mac_tab_bar(self.tabs)
         root.addWidget(self.tabs, 1)
 
         self.tabs.addTab(self._build_todo_tab(), tab_label("tab.todo"))
@@ -967,7 +1078,7 @@ class ControlPanel(QWidget):
         self.tabs.addTab(self._build_timer_tab(), tab_label("tab.timer"))
         if self.sync and self.sync.enabled:
             self._account_tab_index = self.tabs.count()
-            self.tabs.addTab(self._build_account_tab(), tr("tab.account"))
+            self.tabs.addTab(self._build_account_tab(), tab_label("tab.account"))
             self.sync.status_changed.connect(self._on_sync_status)
             self.sync.login_finished.connect(self._on_login_finished)
             self.sync.sms_sent.connect(self._on_sms_sent)
@@ -1086,7 +1197,9 @@ class ControlPanel(QWidget):
         text = self._workbench_header_text()
         if hasattr(self, "header"):
             self.header.setText(text)
-        self.setWindowTitle(text)
+        logged_in = bool(self.sync and self.sync.is_logged_in)
+        account = self.sync.phone if logged_in else None
+        self.setWindowTitle(panel_window_title(logged_in=logged_in, account=account))
 
     def show_assign_focus(self, role: str) -> None:
         """瓦力信封/旗子点击：打开待办页并聚焦派发给/我派出的已接受分组。"""
@@ -1164,6 +1277,7 @@ class ControlPanel(QWidget):
             self._update_todo_sync_status(self.sync.status_text())
 
         self.todo_subtabs = QTabWidget()
+        _configure_mac_tab_bar(self.todo_subtabs)
         lay.addWidget(self.todo_subtabs, 1)
 
         active_w = QWidget()
@@ -1180,7 +1294,7 @@ class ControlPanel(QWidget):
         self.todo_page_bar = PageBar()
         self.todo_page_bar.page_changed.connect(self._on_todo_page_changed)
         active_lay.addWidget(self.todo_page_bar)
-        self.todo_subtabs.addTab(active_w, tr("todo.subtab.active"))
+        self.todo_subtabs.addTab(active_w, tab_label("todo.subtab.active"))
 
         if self.sync and self.sync.enabled:
             inbox_w = QWidget()
@@ -1252,7 +1366,7 @@ class ControlPanel(QWidget):
             self.assign_inbox_scroll.setWidget(inbox_sections_w)
             inbox_lay.addWidget(self.assign_inbox_scroll, 1)
             self._assign_inbox_tab_index = self.todo_subtabs.addTab(
-                inbox_w, tr("todo.subtab.inbox")
+                inbox_w, tab_label("todo.subtab.inbox")
             )
 
             outbox_w = QWidget()
@@ -1344,7 +1458,7 @@ class ControlPanel(QWidget):
             self.assign_outbox_scroll.setWidget(outbox_sections_w)
             outbox_lay.addWidget(self.assign_outbox_scroll, 1)
             self._assign_outbox_tab_index = self.todo_subtabs.addTab(
-                outbox_w, tr("todo.subtab.outbox")
+                outbox_w, tab_label("todo.subtab.outbox")
             )
             self.todo_subtabs.currentChanged.connect(self._on_todo_subtab_changed)
 
@@ -1372,7 +1486,7 @@ class ControlPanel(QWidget):
         archive_clear_row.addWidget(self.todo_archive_clear_btn)
         archive_clear_row.addStretch(1)
         archive_lay.addLayout(archive_clear_row)
-        self.todo_subtabs.addTab(archive_w, tr("todo.subtab.archive"))
+        self.todo_subtabs.addTab(archive_w, tab_label("todo.subtab.archive"))
 
         return w
 
@@ -1723,10 +1837,11 @@ class ControlPanel(QWidget):
     def _todo_list_width(self, viewport) -> int:
         return max(300, viewport.width())
 
-    def _make_todo_row(self, task: Task, list_width: int) -> TodoItemWidget:
-        row = TodoItemWidget(task, list_width=list_width)
+    def _make_todo_row(self, task: Task, list_width: int, *, archive: bool = False) -> TodoItemWidget:
+        row = TodoItemWidget(task, list_width=list_width, archive=archive)
         row.done_changed.connect(self._on_todo_done)
-        row.priority_changed.connect(self._on_todo_priority)
+        if not archive:
+            row.priority_changed.connect(self._on_todo_priority)
         row.delete_requested.connect(self._on_todo_delete)
         return row
 
@@ -1804,7 +1919,7 @@ class ControlPanel(QWidget):
             for day_key, tasks in personal_groups:
                 add_day_header(day_key, len(tasks))
                 for task in tasks:
-                    row = self._make_todo_row(task, list_w)
+                    row = self._make_todo_row(task, list_w, archive=True)
                     row.setFixedWidth(list_w)
                     self.todo_archive_layout.insertWidget(insert_at, row)
                     insert_at += 1
@@ -1893,16 +2008,11 @@ class ControlPanel(QWidget):
         self.remind_date_lbl = QLabel(tr("remind.date"))
         self.remind_date_lbl.setMinimumWidth(56)
         self.remind_date = QDateEdit()
-        self.remind_date.setCalendarPopup(False)
+        self.remind_date.setCalendarPopup(True)
         self.remind_date.setDisplayFormat("yyyy-MM-dd")
         self.remind_date.setDate(QDate.currentDate())
-        self.remind_date.setMinimumWidth(132)
-        self.remind_date.setMaximumWidth(160)
-        self.remind_date.setSizePolicy(
-            QSizePolicy.Policy.Fixed,
-            QSizePolicy.Policy.Fixed,
-        )
-        self.remind_date.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.remind_date.setMinimumWidth(140)
+        self.remind_date.setMaximumWidth(180)
         date_row.addWidget(self.remind_date_lbl)
         date_row.addWidget(self.remind_date)
         date_row.addStretch(1)
@@ -2059,12 +2169,11 @@ class ControlPanel(QWidget):
         self._notes_page = 0
         self.refresh_notes(focus_id=entry.id)
 
-    def _on_note_text(self, note_id: str, text: str) -> None:
-        self.notes.update_text(note_id, text)
-        self.notes_status.setText(tr("notes.auto_saved"))
-
-    def _on_note_height(self, note_id: str, height: int) -> None:
-        self.notes.update_body_height(note_id, height)
+    def _on_note_save(self, note_id: str, text: str, height: int) -> None:
+        self.notes.update_text(note_id, text, save_now=False)
+        self.notes.update_body_height(note_id, height, save_now=False)
+        self.notes.save()
+        self.notes_status.setText(tr("notes.saved"))
 
     def _on_note_delete(self, note_id: str) -> None:
         self.notes.remove(note_id)
@@ -2099,12 +2208,9 @@ class ControlPanel(QWidget):
 
         focus_widget: NoteEntryWidget | None = None
         for entry in _page_slice(entries, self._notes_page, NOTES_PAGE_SIZE):
-            row = NoteEntryWidget(entry)
-            row.set_loading(True)
-            row.text_changed.connect(self._on_note_text)
-            row.height_changed.connect(self._on_note_height)
+            row = NoteEntryWidget(entry, editing=(entry.id == focus_id))
+            row.save_requested.connect(self._on_note_save)
             row.delete_requested.connect(self._on_note_delete)
-            row.set_loading(False)
             self.notes_layout.insertWidget(self.notes_layout.count() - 1, row)
             if entry.id == focus_id:
                 focus_widget = row
@@ -2119,6 +2225,11 @@ class ControlPanel(QWidget):
             focus_widget.focus_edit()
 
     def _save_notes_now(self) -> None:
+        if hasattr(self, "notes_layout"):
+            for i in range(self.notes_layout.count()):
+                widget = self.notes_layout.itemAt(i).widget()
+                if isinstance(widget, NoteEntryWidget):
+                    widget.commit_if_editing()
         self.notes.save()
         self.notes_status.setText(tr("notes.saved"))
 
@@ -2698,7 +2809,7 @@ class ControlPanel(QWidget):
         self.tabs.setTabText(2, tab_label("tab.reminders"))
         self.tabs.setTabText(3, tab_label("tab.timer"))
         if self._account_tab_index >= 0:
-            self.tabs.setTabText(self._account_tab_index, tr("tab.account"))
+            self.tabs.setTabText(self._account_tab_index, tab_label("tab.account"))
 
         self.todo_input.setPlaceholderText(tr("todo.placeholder"))
         self.todo_add_btn.setText(tr("todo.add"))
@@ -2707,12 +2818,12 @@ class ControlPanel(QWidget):
             self.todo_sync_retry_btn.setText(tr("sync.retry"))
             if self.sync:
                 self._update_todo_sync_status(self.sync.status_text())
-        self.todo_subtabs.setTabText(0, tr("todo.subtab.active"))
+        self.todo_subtabs.setTabText(0, tab_label("todo.subtab.active"))
         sub_idx = 1
         if hasattr(self, "assign_inbox_scroll"):
-            self.todo_subtabs.setTabText(sub_idx, tr("todo.subtab.inbox"))
+            self.todo_subtabs.setTabText(sub_idx, tab_label("todo.subtab.inbox"))
             sub_idx += 1
-            self.todo_subtabs.setTabText(sub_idx, tr("todo.subtab.outbox"))
+            self.todo_subtabs.setTabText(sub_idx, tab_label("todo.subtab.outbox"))
             sub_idx += 1
             self.assign_inbox_hint.setText(tr("assign.hint.inbox"))
             self.assign_outbox_hint.setText(tr("assign.hint.outbox"))
@@ -2745,7 +2856,7 @@ class ControlPanel(QWidget):
             self.assign_priority_combo.clear()
             self.assign_priority_combo.addItems(priority_labels())
             self.assign_priority_combo.setCurrentIndex(pri_idx)
-        self.todo_subtabs.setTabText(sub_idx, tr("todo.subtab.archive"))
+        self.todo_subtabs.setTabText(sub_idx, tab_label("todo.subtab.archive"))
         self.todo_archive_hint.setText(tr("todo.archive.hint"))
         if hasattr(self, "todo_archive_clear_btn"):
             self.todo_archive_clear_btn.setText(tr("todo.archive.clear"))
@@ -2758,6 +2869,11 @@ class ControlPanel(QWidget):
         self.note_input.setPlaceholderText(tr("notes.placeholder"))
         self.notes_add_btn.setText(tr("notes.add"))
         self.notes_save_btn.setText(tr("notes.save_all"))
+        if hasattr(self, "notes_layout"):
+            for i in range(self.notes_layout.count()):
+                widget = self.notes_layout.itemAt(i).widget()
+                if isinstance(widget, NoteEntryWidget):
+                    widget.retranslate()
         if hasattr(self, "notes_page_bar"):
             self.notes_page_bar.set_labels(tr("notes.page.prev"), tr("notes.page.next"))
             self.notes_page_bar.set_page(self.notes_page_bar.current_page(), max(1, _page_count(len(self.notes.entries), NOTES_PAGE_SIZE)))
