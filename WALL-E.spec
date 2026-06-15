@@ -1,6 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 打包配置：生成单文件无控制台的 WALL-E.exe。"""
 
+try:
+    import certifi
+
+    _certifi_data = [(certifi.where(), "certifi/cacert.pem")]
+except ImportError:
+    _certifi_data = []
+
 block_cipher = None
 
 a = Analysis(
@@ -11,8 +18,9 @@ a = Analysis(
         ('assets/walle.ico', 'assets'),
         ('walle/assets/frames', 'walle/assets/frames'),
         ('walle/assets/animations.json', 'walle/assets'),
+        *_certifi_data,
     ],
-    hiddenimports=[],
+    hiddenimports=['certifi'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

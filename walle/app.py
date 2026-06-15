@@ -9,6 +9,7 @@ from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .activity_monitor import ActivityMonitor
+from .http_util import install_ssl_certificates
 from .config import Config
 from .icon_util import app_icon
 from .i18n import init_language, on_language_changed, set_language, tab_label, tr
@@ -304,6 +305,7 @@ class WalleApp(QObject):
 
 
 def main() -> int:
+    install_ssl_certificates()
     if sys.platform == "win32":
         try:
             import ctypes

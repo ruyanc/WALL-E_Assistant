@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ..http_util import urlopen as http_urlopen
 from .auth import AuthManager, AuthSession
 from .backend import SyncBackendConfig, SyncBackendError
 from .phone import normalize_phone, phone_local_digits, phone_lookup_variants
@@ -105,7 +106,7 @@ class CloudBaseClient:
         last_err: Exception | None = None
         for attempt in range(3):
             try:
-                with urllib.request.urlopen(req, timeout=25) as resp:
+                with http_urlopen(req, timeout=25) as resp:
                     raw = resp.read().decode("utf-8")
                     if not raw:
                         return None

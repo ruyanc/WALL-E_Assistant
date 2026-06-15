@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from .activity_monitor import ActivityKind
 from .animator import SpriteAnimator
 from .config import Config
-from .platform import menu_font_family
+from .platform import is_macos, menu_font_family
 from .assignment_badges import AssignmentBadgeColumn
 from .todo_bulbs import TodoBulbBar
 from .i18n import priority_short, tab_label, tr
@@ -32,8 +32,14 @@ _ACTIVITY_ANIM = {
 
 class SpeechBubble(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        if is_macos():
+            flags |= Qt.WindowDoesNotAcceptFocus
+        super().__init__(parent, flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        if is_macos():
+            self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            self.setFocusPolicy(Qt.NoFocus)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 8)
         self.label = QLabel("")
@@ -71,8 +77,14 @@ class PetWindow(QWidget):
         super().__init__()
         self.config = config
         self.todo = todo
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        if is_macos():
+            flags |= Qt.WindowDoesNotAcceptFocus
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        if is_macos():
+            self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            self.setFocusPolicy(Qt.NoFocus)
 
         self._size = int(config.get("pet_size", 160))
         self._bulb_h = max(20, int(self._size * 0.16))
@@ -121,7 +133,12 @@ class PetWindow(QWidget):
         self.refresh_assignment_badges([], [], 0, 0)
 
     def raise_to_front(self) -> None:
-        """保持瓦力形象在所有窗口最前（含控制面板与其他应用）。"""
+        """保持瓦力形象在最前；macOS 不抢焦点、不周期性置顶。"""
+        if is_macos():
+            self.raise_()
+            if self.bubble.isVisible():
+                self.bubble.raise_()
+            return
         raise_window_topmost(self)
         if self.bubble.isVisible():
             raise_window_topmost(self.bubble)
@@ -129,7 +146,8 @@ class PetWindow(QWidget):
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         self.raise_to_front()
-        self._topmost_timer.start()
+        if not is_macos():
+            self._topmost_timer.start()
 
     def hideEvent(self, event) -> None:  # noqa: N802
         self._topmost_timer.stop()

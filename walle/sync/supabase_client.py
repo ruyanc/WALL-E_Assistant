@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from ..http_util import urlopen as http_urlopen
 from .auth import AuthManager, AuthSession
 from .backend import SyncBackendConfig, SyncBackendError
 
@@ -49,7 +50,7 @@ class SupabaseClient:
             method=method,
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with http_urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
                 if not raw:
                     return None

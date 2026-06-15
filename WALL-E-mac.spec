@@ -27,7 +27,15 @@ _icns = _root / "assets" / "walle.icns"
 if _icns.is_file():
     _datas.append((str(_icns), "assets"))
 
+try:
+    import certifi
+
+    _datas.append((certifi.where(), "certifi/cacert.pem"))
+except ImportError:
+    pass
+
 hiddenimports = collect_submodules("walle.sync")
+hiddenimports.append("certifi")
 
 a = Analysis(
     [str(_root / "run.py")],

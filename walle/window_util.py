@@ -20,6 +20,8 @@ def raise_window_topmost(widget: QWidget) -> None:
     if not widget.isVisible():
         return
     widget.raise_()
+    if sys.platform == "darwin":
+        return
     if sys.platform != "win32" or ctypes is None:
         return
     try:

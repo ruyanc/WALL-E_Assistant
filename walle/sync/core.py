@@ -703,6 +703,13 @@ class SyncCore:
             return self._tr("sync.err.already_registered")
         if "user not found" in lowered or ("not exist" in lowered and "user" in lowered):
             return self._tr("sync.err.user_not_found")
+        if (
+            "certificate" in lowered
+            or "ssl" in lowered
+            or "cert verify" in lowered
+            or "certificate_verify_failed" in lowered
+        ):
+            return self._tr("sync.err.ssl")
         return msg[:200]
 
     def _set_status(self, text: str) -> None:
