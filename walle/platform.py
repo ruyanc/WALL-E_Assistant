@@ -10,3 +10,21 @@ _DESKTOP_SYNC_PLATFORMS = frozenset({"win32", "darwin"})
 def is_desktop_sync_platform() -> bool:
     """Windows / macOS 桌面端启用 CloudBase 同步与任务派发。"""
     return sys.platform in _DESKTOP_SYNC_PLATFORMS
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def menu_font_family() -> str:
+    if is_macos():
+        return '"PingFang SC", "Helvetica Neue", sans-serif'
+    return '"Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif'
+
+
+def application_display_name() -> str:
+    from .i18n import tr
+
+    if is_macos():
+        return tr("app.menu_name")
+    return tr("app.name")

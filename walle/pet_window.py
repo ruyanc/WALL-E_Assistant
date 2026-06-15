@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from .activity_monitor import ActivityKind
 from .animator import SpriteAnimator
 from .config import Config
+from .platform import menu_font_family
 from .assignment_badges import AssignmentBadgeColumn
 from .todo_bulbs import TodoBulbBar
 from .i18n import priority_short, tr
@@ -364,9 +365,9 @@ class PetWindow(QWidget):
     def contextMenuEvent(self, event) -> None:  # noqa: N802
         menu = QMenu(self)
         menu.setStyleSheet(
-            "QMenu{background:#2b2622;color:#f1e9dc;border:1px solid #4a4138;"
-            "font-family:'Microsoft YaHei UI';font-size:13px;padding:4px;}"
-            "QMenu::item{padding:6px 24px;}"
+            f"QMenu{{background:#2b2622;color:#f1e9dc;border:1px solid #4a4138;"
+            f"font-family:{menu_font_family()};font-size:13px;padding:4px;}}"
+            "QMenu::item{padding:6px 24px;min-width:140px;}"
             "QMenu::item:selected{background:#c88a3a;color:#2b2622;}"
         )
         menu.addAction(tr("pet.menu.open_panel"), self.open_panel.emit)

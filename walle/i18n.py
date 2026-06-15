@@ -15,6 +15,7 @@ _WEEKDAY_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _STRINGS: dict[str, dict[str, str]] = {
     "zh": {
         "app.name": "WALL-E 桌面宠物",
+        "app.menu_name": "WALL-E",
         "lang.zh": "简体中文",
         "lang.en": "English",
         "tray.open_panel": "打开控制台",
@@ -49,13 +50,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "panel.header": "瓦力桌面助手",
         "panel.header.logged_in": "{account}的瓦力桌面助手",
         "tab.todo": "📋 待办",
+        "tab.todo.mac": "待办",
         "tab.notes": "📝 记事本",
+        "tab.notes.mac": "记事本",
         "tab.reminders": "⏰ 提醒",
+        "tab.reminders.mac": "提醒",
         "tab.timer": "⏱️ 番茄钟",
+        "tab.timer.mac": "番茄钟",
         "todo.placeholder": "输入新任务，回车添加",
         "todo.add": "添加",
-        "todo.hint": "示例：开会-高级，交周报-中级，取快递-低级 · 点击方块完成 · 右侧下拉改优先级 · 点 × 或双击删除 · 已完成任务在「已完成归档」页查看",
+        "todo.hint": "示例：开会-高级，交周报-中级，取快递-低级 · 点击方块完成 · 右侧下拉改优先级 · 点「删」删除 · 已完成任务在「已完成归档」页查看",
         "todo.delete_tip": "删除此任务",
+        "todo.delete_btn": "删",
+        "todo.page.prev": "上一页",
+        "todo.page.next": "下一页",
+        "todo.page.info": "第 {page} / {total} 页",
         "todo.created_at": "添加于 {datetime}",
         "todo.completed_at": "完成于 {datetime}",
         "todo.subtab.active": "个人待办",
@@ -76,7 +85,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prio.high": "高级",
         "prio.med": "中级",
         "prio.low": "低级",
-        "notes.hint": "可添加多条小备忘，编辑后自动保存",
+        "notes.hint": "可添加多条备忘，编辑后自动保存",
         "notes.placeholder": "新条目内容，回车或点添加",
         "notes.add": "添加条目",
         "notes.save_all": "全部保存",
@@ -87,13 +96,23 @@ _STRINGS: dict[str, dict[str, str]] = {
         "notes.created_at": "添加于 {datetime}",
         "notes.created_updated": "添加于 {created} · 修改于 {updated}",
         "notes.delete_tip": "删除此条",
+        "notes.delete_btn": "删",
+        "notes.page.prev": "上一页",
+        "notes.page.next": "下一页",
+        "notes.page.info": "第 {page} / {total} 页",
         "remind.hint": "示例：每天 10:00 提醒喝水，每天 22:00 提醒休息",
         "remind.placeholder": "提醒内容，如：喝水、休息",
         "remind.time": "触发时间",
+        "remind.date": "指定日期",
         "remind.repeat": "周期",
         "remind.add": "添加提醒",
         "remind.list_hint": "已设置的提醒（到点会通过瓦力气泡通知）",
-        "remind.delete_sel": "删除选中",
+        "remind.section.recurring": "重复提醒",
+        "remind.section.once": "单次提醒",
+        "remind.empty.recurring": "暂无重复提醒",
+        "remind.empty.once": "暂无单次提醒",
+        "remind.delete_tip": "删除此提醒",
+        "remind.delete_btn": "删",
         "remind.repeat.daily": "每天",
         "remind.repeat.weekdays": "工作日（周一至周五）",
         "remind.repeat.mon": "每周一",
@@ -273,6 +292,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "en": {
         "app.name": "WALL-E Desktop Pet",
+        "app.menu_name": "WALL-E",
         "lang.zh": "简体中文",
         "lang.en": "English",
         "tray.open_panel": "Open Control Panel",
@@ -307,13 +327,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "panel.header": "WALL-E Assistant",
         "panel.header.logged_in": "{account}'s WALL-E Assistant",
         "tab.todo": "📋 To-Do",
+        "tab.todo.mac": "To-Do",
         "tab.notes": "📝 Notes",
+        "tab.notes.mac": "Notes",
         "tab.reminders": "⏰ Reminders",
+        "tab.reminders.mac": "Reminders",
         "tab.timer": "⏱️ Pomodoro",
+        "tab.timer.mac": "Pomodoro",
         "todo.placeholder": "New task, press Enter to add",
         "todo.add": "Add",
-        "todo.hint": "e.g. Meeting-High, Report-Med, Package-Low · Click square to complete · Priority dropdown · × or double-click to delete · Completed tasks are in Completed archive",
+        "todo.hint": "e.g. Meeting-High, Report-Med, Package-Low · Click square to complete · Priority dropdown · Del button to remove · Completed tasks are in Completed archive",
         "todo.delete_tip": "Delete this task",
+        "todo.delete_btn": "Del",
+        "todo.page.prev": "Previous",
+        "todo.page.next": "Next",
+        "todo.page.info": "Page {page} / {total}",
         "todo.created_at": "Added {datetime}",
         "todo.completed_at": "Completed {datetime}",
         "todo.subtab.active": "Personal to-dos",
@@ -334,7 +362,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "prio.high": "High",
         "prio.med": "Medium",
         "prio.low": "Low",
-        "notes.hint": "Multiple short notes; edits save automatically",
+        "notes.hint": "Multiple notes; edits save automatically",
         "notes.placeholder": "New note, Enter or Add",
         "notes.add": "Add note",
         "notes.save_all": "Save all",
@@ -345,13 +373,23 @@ _STRINGS: dict[str, dict[str, str]] = {
         "notes.created_at": "Added {datetime}",
         "notes.created_updated": "Added {created} · Updated {updated}",
         "notes.delete_tip": "Delete this note",
+        "notes.delete_btn": "Del",
+        "notes.page.prev": "Previous",
+        "notes.page.next": "Next",
+        "notes.page.info": "Page {page} / {total}",
         "remind.hint": "e.g. Drink water daily at 10:00, rest at 22:00",
         "remind.placeholder": "Reminder text, e.g. water, break",
         "remind.time": "Time",
+        "remind.date": "Date",
         "remind.repeat": "Repeat",
         "remind.add": "Add reminder",
         "remind.list_hint": "Active reminders (WALL-E bubble at due time)",
-        "remind.delete_sel": "Delete selected",
+        "remind.section.recurring": "Recurring",
+        "remind.section.once": "One-time",
+        "remind.empty.recurring": "No recurring reminders",
+        "remind.empty.once": "No one-time reminders",
+        "remind.delete_tip": "Delete this reminder",
+        "remind.delete_btn": "Del",
         "remind.repeat.daily": "Every day",
         "remind.repeat.weekdays": "Weekdays (Mon–Fri)",
         "remind.repeat.mon": "Every Monday",
@@ -569,6 +607,18 @@ def tr(key: str, **kwargs: Any) -> str:
     if kwargs:
         return text.format(**kwargs)
     return text
+
+
+def tab_label(key: str) -> str:
+    """macOS 菜单栏/标签页使用无 emoji 的短文案，避免截断。"""
+    import sys
+
+    mac_key = f"{key}.mac"
+    if sys.platform == "darwin":
+        text = tr(mac_key)
+        if text != mac_key:
+            return text
+    return tr(key)
 
 
 def priority_labels() -> tuple[str, str, str]:

@@ -527,8 +527,6 @@ Token 刷新：`access_token` 约 2 小时有效，客户端自动用 `refresh_t
 .\install.bat silent
 ```
 
-清理构建缓存（保留 `dist/WALL-E.exe`、`.msi`）：`clean_build_artifacts.bat`。详见 [BUILD_ARTIFACTS.md](../BUILD_ARTIFACTS.md)。
-
 ---
 
-*最后更新：2026-06-15*
+*最后更新：2026-06-14*

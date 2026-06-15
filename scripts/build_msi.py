@@ -140,6 +140,26 @@ def _add_startup_shortcut(db, feature, exe_file_id: str) -> None:
     )
 
 
+def _add_upgrade_table(db) -> None:
+    from msilib import add_data
+
+    add_data(
+        db,
+        "Upgrade",
+        [
+            (
+                UPGRADE_CODE,
+                "0.0.0",
+                PRODUCT_VERSION,
+                "",
+                1,
+                "",
+                "OLDPRODUCTS",
+            )
+        ],
+    )
+
+
 def main() -> int:
     if sys.platform != "win32":
         print("MSI 打包仅支持 Windows。")
@@ -237,6 +257,7 @@ def main() -> int:
 
     _add_desktop_shortcut(db, feature, exe_file_id)
     _add_startup_shortcut(db, feature, exe_file_id)
+    _add_upgrade_table(db)
     _add_icon(db, icon_path)
     _add_wizard_ui(db)
 

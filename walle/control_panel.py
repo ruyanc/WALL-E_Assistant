@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import QDate, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QInputDialog,
     QMessageBox,
+    QSizePolicy,
     QScrollArea,
     QSlider,
     QSpinBox,
@@ -34,7 +36,7 @@ from PySide6.QtWidgets import (
 from .todo_manager import Task
 
 from .config import Config
-from .i18n import current, format_todo_archive_day, priority_labels, remind_repeat_options, set_language, tr
+from .i18n import current, format_todo_archive_day, priority_labels, remind_repeat_options, set_language, tab_label, tr, weekday_name
 from .notes_manager import NoteEntry, NotesManager, format_note_timestamp
 from .pet_window import MAX_PET_SIZE, MIN_PET_SIZE
 from .pomodoro import PomodoroState, PomodoroTimer
@@ -43,6 +45,7 @@ from .reminder_manager import (
     REPEAT_ONCE,
     REPEAT_WEEKDAYS,
     REPEAT_WEEKLY,
+    Reminder,
     ReminderManager,
 )
 from .sync.assignment_models import (
@@ -63,6 +66,9 @@ FONT_FAMILY = '"Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif'
 
 PRIORITY_VALUES = (PRIORITY_HIGH, PRIORITY_MED, PRIORITY_LOW)
 PRIORITY_INDEX = {PRIORITY_HIGH: 0, PRIORITY_MED: 1, PRIORITY_LOW: 2}
+
+TODO_PAGE_SIZE = 15
+NOTES_PAGE_SIZE = 10
 
 _ACCOUNT_INPUT_WIDTH = {
     "auth": 300,
@@ -187,6 +193,29 @@ QPushButton#ghost {{
     font-weight: normal;
 }}
 QPushButton#ghost:hover {{ background: #4a4138; }}
+QPushButton#deleteBtn {{
+    background: transparent;
+    color: #b07068;
+    border: 1px solid #5a4540;
+    border-radius: 4px;
+    padding: 0;
+    font-size: 11px;
+    font-weight: normal;
+    min-width: 22px;
+    max-width: 22px;
+    min-height: 22px;
+    max-height: 22px;
+}}
+QPushButton#deleteBtn:hover {{
+    background: #3d2a28;
+    color: #e88878;
+    border-color: #a05850;
+}}
+QFrame#noteCard {{
+    background: #1f1c19;
+    border: 1px solid #3d3630;
+    border-radius: 8px;
+}}
 QListWidget {{
     background: #1a1714;
     border: 1px solid #4a4138;
@@ -269,6 +298,86 @@ QComboBox QAbstractItemView {{
 }}
 """
 
+
+def _make_delete_button(tooltip: str, label: str, on_click: Callable[[], None]) -> QPushButton:
+    btn = QPushButton(label)
+    btn.setObjectName("deleteBtn")
+    btn.setFixedSize(22, 22)
+    btn.setToolTip(tooltip)
+    btn.clicked.connect(on_click)
+    return btn
+
+
+def _page_count(total: int, page_size: int) -> int:
+    if total <= 0:
+        return 1
+    return max(1, math.ceil(total / page_size))
+
+
+def _page_slice(items: list, page: int, page_size: int) -> list:
+    if not items:
+        return []
+    pages = _page_count(len(items), page_size)
+    page = max(0, min(page, pages - 1))
+    start = page * page_size
+    return items[start : start + page_size]
+
+
+class PageBar(QWidget):
+    """简单分页导航条。"""
+
+    page_changed = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._page = 0
+        self._total_pages = 1
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        self.prev_btn = QPushButton(tr("todo.page.prev"))
+        self.prev_btn.setObjectName("ghost")
+        self.prev_btn.clicked.connect(self._prev)
+        self.info_label = QLabel()
+        self.info_label.setObjectName("hint")
+        self.next_btn = QPushButton(tr("todo.page.next"))
+        self.next_btn.setObjectName("ghost")
+        self.next_btn.clicked.connect(self._next)
+        row.addStretch(1)
+        row.addWidget(self.prev_btn)
+        row.addWidget(self.info_label)
+        row.addWidget(self.next_btn)
+        self._refresh()
+
+    def set_labels(self, prev: str, next_: str) -> None:
+        self.prev_btn.setText(prev)
+        self.next_btn.setText(next_)
+
+    def set_page(self, page: int, total_pages: int) -> None:
+        self._page = max(0, min(page, max(0, total_pages - 1)))
+        self._total_pages = max(1, total_pages)
+        self._refresh()
+
+    def current_page(self) -> int:
+        return self._page
+
+    def _refresh(self) -> None:
+        visible = self._total_pages > 1
+        self.setVisible(visible)
+        self.prev_btn.setEnabled(self._page > 0)
+        self.next_btn.setEnabled(self._page < self._total_pages - 1)
+        self.info_label.setText(
+            tr("todo.page.info", page=self._page + 1, total=self._total_pages)
+        )
+
+    def _prev(self) -> None:
+        if self._page > 0:
+            self.page_changed.emit(self._page - 1)
+
+    def _next(self) -> None:
+        if self._page < self._total_pages - 1:
+            self.page_changed.emit(self._page + 1)
+
 class SquareCheckBox(QWidget):
     """方块勾选框：完成时显示打勾。"""
 
@@ -316,52 +425,105 @@ class SquareCheckBox(QWidget):
             event.accept()
 
 
-class NoteEntryWidget(QWidget):
-    """单条记事：小文本框 + 日期 + 删除。"""
+class NoteResizeHandle(QWidget):
+    """记事正文底部拖拽条，调节文本框高度。"""
+
+    height_changed = Signal(int)
+
+    def __init__(self, text_edit: QPlainTextEdit, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._edit = text_edit
+        self.setFixedHeight(8)
+        self.setCursor(Qt.SizeVerCursor)
+        self._dragging = False
+        self._start_y = 0.0
+        self._start_h = 72
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setPen(QColor(0x6A, 0x60, 0x58))
+        mid = self.height() // 2
+        cx = self.width() // 2
+        for dx in (-10, -5, 0, 5, 10):
+            p.drawPoint(cx + dx, mid)
+        p.end()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._start_y = event.globalPosition().y()
+            self._start_h = self._edit.height()
+            event.accept()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._dragging:
+            delta = int(event.globalPosition().y() - self._start_y)
+            self.height_changed.emit(max(36, min(480, self._start_h + delta)))
+            event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            event.accept()
+
+
+class NoteEntryWidget(QFrame):
+    """单条记事：可拖拽高度的正文 + 日期 + 删除。"""
 
     text_changed = Signal(str, str)
+    height_changed = Signal(str, int)
     delete_requested = Signal(str)
 
     def __init__(self, entry: NoteEntry, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("noteCard")
         self._note_id = entry.id
         self._loading = False
         self._created = float(entry.created)
         self._updated_at = float(entry.updated_at)
+        self._body_height = entry.body_height if entry.body_height > 0 else 72
 
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(8)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(4)
 
-        content = QVBoxLayout()
-        content.setContentsMargins(0, 0, 0, 0)
-        content.setSpacing(4)
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.addStretch(1)
+        del_btn = _make_delete_button(
+            tr("notes.delete_tip"),
+            tr("notes.delete_btn"),
+            lambda: self.delete_requested.emit(self._note_id),
+        )
+        head.addWidget(del_btn, 0, Qt.AlignTop)
+        outer.addLayout(head)
 
         self.edit = QPlainTextEdit(entry.text)
         self.edit.setPlaceholderText(tr("notes.entry_placeholder"))
-        self.edit.setMaximumHeight(80)
-        self.edit.setMinimumHeight(52)
+        self.edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         nf = QFont("Microsoft YaHei UI", 13)
         self.edit.setFont(nf)
+        self.edit.setFixedHeight(self._body_height)
         self.edit.textChanged.connect(self._on_text)
+        outer.addWidget(self.edit)
+
+        self._resize_handle = NoteResizeHandle(self.edit, self)
+        self._resize_handle.height_changed.connect(self._on_resize_drag)
+        outer.addWidget(self._resize_handle)
 
         self.dates_label = QLabel()
         self.dates_label.setObjectName("hint")
         df = QFont("Microsoft YaHei UI", 10)
         self.dates_label.setFont(df)
         self._refresh_dates()
+        outer.addWidget(self.dates_label)
 
-        content.addWidget(self.edit)
-        content.addWidget(self.dates_label)
-
-        del_btn = QPushButton("×")
-        del_btn.setObjectName("ghost")
-        del_btn.setFixedSize(32, 32)
-        del_btn.setToolTip(tr("notes.delete_tip"))
-        del_btn.clicked.connect(lambda: self.delete_requested.emit(self._note_id))
-
-        lay.addLayout(content, 1)
-        lay.addWidget(del_btn, 0, Qt.AlignTop)
+    def _on_resize_drag(self, height: int) -> None:
+        self._body_height = height
+        self.edit.setFixedHeight(height)
+        self.height_changed.emit(self._note_id, height)
 
     def _refresh_dates(self) -> None:
         created_s = format_note_timestamp(self._created)
@@ -416,7 +578,7 @@ class TodoItemWidget(QFrame):
     priority_changed = Signal(str, int)
     delete_requested = Signal(str)
 
-    _SIDE = 22 + 4 + 10 + 84 + 28 + 40  # 勾选、色条、间距、下拉、边距、删除钮
+    _SIDE = 22 + 4 + 8 + 76 + 16 + 30  # 勾选、色条、间距、下拉、边距、删除钮
 
     def __init__(self, task: Task, list_width: int = 480, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -426,8 +588,8 @@ class TodoItemWidget(QFrame):
         self._apply_card_style(task.done)
 
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(10)
+        outer.setContentsMargins(6, 4, 6, 4)
+        outer.setSpacing(6)
 
         self.check = SquareCheckBox(task.done)
         self.check.toggled.connect(self._on_check)
@@ -435,7 +597,7 @@ class TodoItemWidget(QFrame):
         self.stripe = PriorityBar(task.priority)
 
         body = QVBoxLayout()
-        body.setSpacing(6)
+        body.setSpacing(2)
         body.setContentsMargins(0, 0, 0, 0)
 
         self.label = QLabel(task.text)
@@ -444,30 +606,29 @@ class TodoItemWidget(QFrame):
         self.label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._apply_done_style(task.done)
 
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(0, 0, 0, 0)
+        meta_row.setSpacing(6)
         self.time_label = QLabel(_format_todo_time_lines(task))
         self.time_label.setObjectName("hint")
         self.time_label.setWordWrap(True)
-
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        footer.addStretch(1)
         self.prio_combo = _make_priority_combo(task.priority, compact=True)
         self.prio_combo.currentIndexChanged.connect(self._on_priority_index)
-        footer.addWidget(self.prio_combo, 0, Qt.AlignRight)
+        meta_row.addWidget(self.time_label, 1)
+        meta_row.addWidget(self.prio_combo, 0, Qt.AlignRight | Qt.AlignTop)
 
         body.addWidget(self.label)
-        body.addWidget(self.time_label)
-        body.addLayout(footer)
+        body.addLayout(meta_row)
 
         outer.addWidget(self.check, 0, Qt.AlignTop | Qt.AlignHCenter)
         outer.addWidget(self.stripe, 0, Qt.AlignTop)
         outer.addLayout(body, 1)
 
-        self.delete_btn = QPushButton("×")
-        self.delete_btn.setObjectName("ghost")
-        self.delete_btn.setFixedSize(32, 32)
-        self.delete_btn.setToolTip(tr("todo.delete_tip"))
-        self.delete_btn.clicked.connect(lambda: self.delete_requested.emit(self._task_id))
+        self.delete_btn = _make_delete_button(
+            tr("todo.delete_tip"),
+            tr("todo.delete_btn"),
+            lambda: self.delete_requested.emit(self._task_id),
+        )
         outer.addWidget(self.delete_btn, 0, Qt.AlignTop)
 
         self._loading = False
@@ -495,8 +656,7 @@ class TodoItemWidget(QFrame):
             return
         self._apply_done_style(done)
         self._apply_card_style(done)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        self.update()
         self.done_changed.emit(self._task_id, done)
 
     def _on_priority_index(self, index: int) -> None:
@@ -515,11 +675,57 @@ class TodoItemWidget(QFrame):
         self.label.adjustSize()
         self.time_label.adjustSize()
         self.adjustSize()
-        return max(56, self.sizeHint().height())
+        return max(44, self.sizeHint().height())
 
-    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
-        super().mouseDoubleClickEvent(event)
-        self.delete_requested.emit(self._task_id)
+
+def _reminder_tag(reminder: Reminder) -> str:
+    repeat_map = {
+        REPEAT_ONCE: tr("remind.fmt.once", date=reminder.target_date or "?"),
+        REPEAT_DAILY: tr("remind.fmt.daily"),
+        REPEAT_WEEKDAYS: tr("remind.fmt.weekdays"),
+        REPEAT_WEEKLY: tr("remind.fmt.weekly", day=weekday_name(reminder.weekday or 0)),
+    }
+    return repeat_map.get(reminder.repeat, reminder.repeat)
+
+
+class ReminderItemWidget(QFrame):
+    """提醒条目：时间 + 周期 + 内容 + 删除。"""
+
+    delete_requested = Signal(str)
+
+    def __init__(self, reminder: Reminder, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("todoCard")
+        self._reminder_id = reminder.id
+
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(8)
+
+        time_lbl = QLabel(f"{reminder.hour:02d}:{reminder.minute:02d}")
+        time_lbl.setObjectName("section")
+        time_lbl.setMinimumWidth(44)
+
+        body = QVBoxLayout()
+        body.setSpacing(2)
+        body.setContentsMargins(0, 0, 0, 0)
+        tag_lbl = QLabel(_reminder_tag(reminder))
+        tag_lbl.setObjectName("hint")
+        text_lbl = QLabel(reminder.text)
+        text_lbl.setObjectName("todoText")
+        text_lbl.setWordWrap(True)
+        body.addWidget(tag_lbl)
+        body.addWidget(text_lbl)
+
+        del_btn = _make_delete_button(
+            tr("remind.delete_tip"),
+            tr("remind.delete_btn"),
+            lambda: self.delete_requested.emit(self._reminder_id),
+        )
+
+        outer.addWidget(time_lbl, 0, Qt.AlignTop)
+        outer.addLayout(body, 1)
+        outer.addWidget(del_btn, 0, Qt.AlignTop)
 
 
 def _assignment_status_text(status: str) -> str:
@@ -556,8 +762,8 @@ class AssignmentItemWidget(QFrame):
     cancel_requested = Signal(str)
     dismiss_requested = Signal(str)
 
-    # 色条(4) + 外边距左右(10+10) + 色条与正文间距(10)
-    _SIDE = 4 + 10 + 10 + 10
+    # 色条(4) + 外边距左右(6+6) + 色条与正文间距(6) + 删除钮
+    _SIDE = 4 + 6 + 6 + 6 + 30
 
     def __init__(
         self,
@@ -572,21 +778,23 @@ class AssignmentItemWidget(QFrame):
         super().__init__(parent)
         self._assignment_id = assignment.id
         self._list_width = list_width
-        self.setObjectName("todoCard")
+        self.setObjectName("todoCardDone" if archive else "todoCard")
 
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(10)
+        outer.setContentsMargins(6, 4, 6, 4)
+        outer.setSpacing(6)
 
         self.stripe = PriorityBar(assignment.priority)
 
         body = QVBoxLayout()
-        body.setSpacing(6)
+        body.setSpacing(2)
         body.setContentsMargins(0, 0, 0, 0)
 
         self.title_label = QLabel(assignment.title)
         if archive:
             self.title_label.setObjectName("todoTextDone")
+        else:
+            self.title_label.setObjectName("todoText")
         self.title_label.setWordWrap(True)
         self.title_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
@@ -621,13 +829,7 @@ class AssignmentItemWidget(QFrame):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
         btn_row.setContentsMargins(0, 0, 0, 0)
-        if archive:
-            dismiss_btn = QPushButton(tr("assign.clear_one"))
-            dismiss_btn.setObjectName("ghost")
-            dismiss_btn.setMinimumWidth(56)
-            dismiss_btn.clicked.connect(lambda: self.dismiss_requested.emit(self._assignment_id))
-            btn_row.addWidget(dismiss_btn)
-        elif role == "inbox":
+        if not archive and role == "inbox":
             if assignment.status == STATUS_PENDING:
                 accept_btn = QPushButton(tr("assign.accept"))
                 accept_btn.setMinimumWidth(56)
@@ -643,23 +845,24 @@ class AssignmentItemWidget(QFrame):
                 complete_btn.setMinimumWidth(56)
                 complete_btn.clicked.connect(lambda: self.complete_requested.emit(self._assignment_id))
                 btn_row.addWidget(complete_btn)
-        elif role == "outbox" and assignment.status in (STATUS_PENDING, STATUS_ACCEPTED):
+        elif not archive and role == "outbox" and assignment.status in (STATUS_PENDING, STATUS_ACCEPTED):
             cancel_btn = QPushButton(tr("assign.cancel"))
             cancel_btn.setObjectName("ghost")
             cancel_btn.setMinimumWidth(72)
             cancel_btn.clicked.connect(lambda: self.cancel_requested.emit(self._assignment_id))
             btn_row.addWidget(cancel_btn)
-        if not archive and assignment.status in (STATUS_REJECTED, STATUS_CANCELLED):
-            dismiss_btn = QPushButton(tr("assign.clear_one"))
-            dismiss_btn.setObjectName("ghost")
-            dismiss_btn.setMinimumWidth(56)
-            dismiss_btn.clicked.connect(lambda: self.dismiss_requested.emit(self._assignment_id))
-            btn_row.addWidget(dismiss_btn)
         btn_row.addStretch(1)
         body.addLayout(btn_row)
 
         outer.addWidget(self.stripe, 0, Qt.AlignTop)
         outer.addLayout(body, 1)
+
+        self.delete_btn = _make_delete_button(
+            tr("todo.delete_tip"),
+            tr("todo.delete_btn"),
+            lambda: self.dismiss_requested.emit(self._assignment_id),
+        )
+        outer.addWidget(self.delete_btn, 0, Qt.AlignTop)
         self._sync_label_width()
 
     def _text_width(self) -> int:
@@ -667,23 +870,19 @@ class AssignmentItemWidget(QFrame):
 
     def _sync_label_width(self) -> None:
         width = self._text_width()
-        self.title_label.setMaximumWidth(width)
+        self.title_label.setFixedWidth(width)
         if self.description_label.isVisible():
-            self.description_label.setMaximumWidth(width)
-        self.meta_label.setMaximumWidth(width)
+            self.description_label.setFixedWidth(width)
+        self.meta_label.setFixedWidth(width)
 
     def height_hint(self) -> int:
         self._sync_label_width()
-        self.ensurePolished()
         self.title_label.adjustSize()
         if self.description_label.isVisible():
             self.description_label.adjustSize()
         self.meta_label.adjustSize()
-        layout = self.layout()
-        if layout is not None:
-            layout.activate()
         self.adjustSize()
-        return max(72, self.sizeHint().height())
+        return max(44, self.sizeHint().height())
 
 
 class ControlPanel(QWidget):
@@ -734,7 +933,9 @@ class ControlPanel(QWidget):
         self._assign_refresh_timer.setInterval(50)
         self._assign_refresh_timer.timeout.connect(self._flush_refresh_assignments)
 
-        self._pending_notes_focus_id: int | None = None
+        self._pending_notes_focus_id: str | None = None
+        self._todo_page = 0
+        self._notes_page = 0
         self._layout_refresh_timer = QTimer(self)
         self._layout_refresh_timer.setSingleShot(True)
         self._layout_refresh_timer.setInterval(80)
@@ -760,10 +961,10 @@ class ControlPanel(QWidget):
         self.tabs = QTabWidget()
         root.addWidget(self.tabs, 1)
 
-        self.tabs.addTab(self._build_todo_tab(), tr("tab.todo"))
-        self.tabs.addTab(self._build_notes_tab(), tr("tab.notes"))
-        self.tabs.addTab(self._build_reminders_tab(), tr("tab.reminders"))
-        self.tabs.addTab(self._build_timer_tab(), tr("tab.timer"))
+        self.tabs.addTab(self._build_todo_tab(), tab_label("tab.todo"))
+        self.tabs.addTab(self._build_notes_tab(), tab_label("tab.notes"))
+        self.tabs.addTab(self._build_reminders_tab(), tab_label("tab.reminders"))
+        self.tabs.addTab(self._build_timer_tab(), tab_label("tab.timer"))
         if self.sync and self.sync.enabled:
             self._account_tab_index = self.tabs.count()
             self.tabs.addTab(self._build_account_tab(), tr("tab.account"))
@@ -809,10 +1010,67 @@ class ControlPanel(QWidget):
             self._refresh_contacts_list()
 
     def _flush_layout_sensitive_lists(self) -> None:
-        if hasattr(self, "todo_list"):
-            self._flush_refresh_todo()
-        if hasattr(self, "assign_inbox_scroll"):
-            self._flush_refresh_assignments()
+        self._sync_todo_list_layout()
+        self._sync_assignment_list_layouts()
+        self._sync_archive_row_layouts()
+
+    def _sync_todo_list_layout(self) -> None:
+        if not hasattr(self, "todo_list"):
+            return
+        list_w = self._todo_list_width(self.todo_list.viewport())
+        for i in range(self.todo_list.count()):
+            item = self.todo_list.item(i)
+            if item is None:
+                continue
+            widget = self.todo_list.itemWidget(item)
+            if isinstance(widget, TodoItemWidget):
+                widget._list_width = list_w
+                height = widget.height_hint()
+                item.setSizeHint(QSize(list_w, height))
+
+    def _sync_assignment_list_layouts(self) -> None:
+        if not hasattr(self, "assign_inbox_scroll"):
+            return
+        lists = [
+            getattr(self, "assign_inbox_pending_list", None),
+            getattr(self, "assign_inbox_accepted_list", None),
+            getattr(self, "assign_inbox_rejected_list", None),
+            getattr(self, "assign_inbox_cancelled_list", None),
+            getattr(self, "assign_outbox_pending_list", None),
+            getattr(self, "assign_outbox_accepted_list", None),
+            getattr(self, "assign_outbox_rejected_list", None),
+            getattr(self, "assign_outbox_cancelled_list", None),
+        ]
+        for list_widget in lists:
+            if list_widget is None:
+                continue
+            list_w = self._assign_list_width(list_widget.viewport())
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                if item is None:
+                    continue
+                widget = list_widget.itemWidget(item)
+                if isinstance(widget, AssignmentItemWidget):
+                    widget._list_width = list_w
+                    item.setSizeHint(QSize(list_w, widget.height_hint()))
+
+    def _sync_archive_row_layouts(self) -> None:
+        if not hasattr(self, "todo_archive_layout"):
+            return
+        list_w = self._todo_list_width(self.todo_archive_scroll.viewport())
+        for i in range(self.todo_archive_layout.count()):
+            item = self.todo_archive_layout.itemAt(i)
+            if item is None:
+                continue
+            widget = item.widget()
+            if isinstance(widget, TodoItemWidget):
+                widget._list_width = list_w
+                widget.setFixedWidth(list_w)
+                widget.height_hint()
+            elif isinstance(widget, AssignmentItemWidget):
+                widget._list_width = list_w
+                widget.setFixedWidth(list_w)
+                widget.height_hint()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -918,8 +1176,10 @@ class ControlPanel(QWidget):
         self.todo_list.setUniformItemSizes(False)
         self.todo_list.setSpacing(6)
         self.todo_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.todo_list.itemDoubleClicked.connect(self._on_item_double)
         active_lay.addWidget(self.todo_list, 1)
+        self.todo_page_bar = PageBar()
+        self.todo_page_bar.page_changed.connect(self._on_todo_page_changed)
+        active_lay.addWidget(self.todo_page_bar)
         self.todo_subtabs.addTab(active_w, tr("todo.subtab.active"))
 
         if self.sync and self.sync.enabled:
@@ -1116,6 +1376,10 @@ class ControlPanel(QWidget):
 
         return w
 
+    def _on_todo_page_changed(self, page: int) -> None:
+        self._todo_page = page
+        self._flush_refresh_todo()
+
     def _add_todo(self) -> None:
         text = self.todo_input.text().strip()
         if text:
@@ -1123,6 +1387,7 @@ class ControlPanel(QWidget):
             pri = PRIORITY_VALUES[idx] if 0 <= idx < len(PRIORITY_VALUES) else PRIORITY_MED
             self.todo.add(text, priority=pri)
             self.todo_input.clear()
+            self._todo_page = 0
 
     def _on_todo_done(self, task_id: str, done: bool) -> None:
         task = self.todo.find(task_id)
@@ -1131,11 +1396,6 @@ class ControlPanel(QWidget):
 
     def _on_todo_priority(self, task_id: str, priority: int) -> None:
         self.todo.set_priority(task_id, priority)
-
-    def _on_item_double(self, item: QListWidgetItem) -> None:
-        task_id = item.data(Qt.UserRole)
-        if task_id is not None:
-            self.todo.remove(task_id)
 
     def _on_todo_delete(self, task_id: str) -> None:
         self.todo.remove(task_id)
@@ -1214,29 +1474,33 @@ class ControlPanel(QWidget):
         self._run_assign_action("accept", assignment_id)
 
     def _on_assign_reject(self, assignment_id: str) -> None:
-        note, ok = QInputDialog.getMultiLineText(
-            self,
-            tr("assign.reject.title"),
-            tr("assign.reject.prompt"),
-            "",
-        )
-        if not ok or not note.strip():
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle(tr("assign.reject.title"))
+        dialog.setLabelText(tr("assign.reject.prompt"))
+        dialog.setTextEchoMode(QLineEdit.EchoMode.Normal)
+        dialog.setOption(QInputDialog.InputDialogOption.UsePlainTextEditForTextInput, True)
+        if dialog.exec() != QInputDialog.DialogCode.Accepted:
             return
-        self.sync.reject_assignment(assignment_id, note.strip())  # type: ignore[union-attr]
+        note = dialog.textValue().strip()
+        if not note:
+            return
+        self.sync.reject_assignment(assignment_id, note)  # type: ignore[union-attr]
 
     def _on_assign_complete(self, assignment_id: str) -> None:
         self._run_assign_action("complete", assignment_id)
 
     def _on_assign_cancel(self, assignment_id: str) -> None:
-        note, ok = QInputDialog.getMultiLineText(
-            self,
-            tr("assign.cancel.title"),
-            tr("assign.cancel.prompt"),
-            "",
-        )
-        if not ok or not note.strip():
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle(tr("assign.cancel.title"))
+        dialog.setLabelText(tr("assign.cancel.prompt"))
+        dialog.setTextEchoMode(QLineEdit.EchoMode.Normal)
+        dialog.setOption(QInputDialog.InputDialogOption.UsePlainTextEditForTextInput, True)
+        if dialog.exec() != QInputDialog.DialogCode.Accepted:
             return
-        self.sync.cancel_assignment(assignment_id, note.strip())  # type: ignore[union-attr]
+        note = dialog.textValue().strip()
+        if not note:
+            return
+        self.sync.cancel_assignment(assignment_id, note)  # type: ignore[union-attr]
 
     def _assign_feedback(self, message: str, *, error: bool = False) -> None:
         if hasattr(self, "sync_status_label"):
@@ -1474,9 +1738,14 @@ class ControlPanel(QWidget):
     def _flush_refresh_todo(self) -> None:
         if not hasattr(self, "todo_list"):
             return
+        pending = self.todo.pending()
+        total_pages = _page_count(len(pending), TODO_PAGE_SIZE)
+        if self._todo_page >= total_pages:
+            self._todo_page = max(0, total_pages - 1)
+        self.todo_page_bar.set_page(self._todo_page, total_pages)
         self.todo_list.clear()
         list_w = self._todo_list_width(self.todo_list.viewport())
-        for t in self.todo.pending():
+        for t in _page_slice(pending, self._todo_page, TODO_PAGE_SIZE):
             row = self._make_todo_row(t, list_w)
             item = QListWidgetItem()
             item.setData(Qt.UserRole, t.id)
@@ -1536,6 +1805,7 @@ class ControlPanel(QWidget):
                 add_day_header(day_key, len(tasks))
                 for task in tasks:
                     row = self._make_todo_row(task, list_w)
+                    row.setFixedWidth(list_w)
                     self.todo_archive_layout.insertWidget(insert_at, row)
                     insert_at += 1
 
@@ -1550,6 +1820,7 @@ class ControlPanel(QWidget):
                         list_width=list_w,
                         archive=True,
                     )
+                    row.setFixedWidth(list_w)
                     self.todo_archive_layout.insertWidget(insert_at, row)
                     insert_at += 1
 
@@ -1564,6 +1835,7 @@ class ControlPanel(QWidget):
                         list_width=list_w,
                         archive=True,
                     )
+                    row.setFixedWidth(list_w)
                     self.todo_archive_layout.insertWidget(insert_at, row)
                     insert_at += 1
 
@@ -1599,14 +1871,8 @@ class ControlPanel(QWidget):
         self.remind_repeat = QComboBox()
         self.remind_repeat.addItems(remind_repeat_options())
         self.remind_repeat.setMinimumWidth(148)
+        self.remind_repeat.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.remind_repeat.currentIndexChanged.connect(self._on_remind_repeat_changed)
-
-        self.remind_date = QDateEdit()
-        self.remind_date.setCalendarPopup(True)
-        self.remind_date.setDisplayFormat("yyyy-MM-dd")
-        self.remind_date.setDate(QDate.currentDate())
-        self.remind_date.setMinimumWidth(120)
-        self.remind_date.setVisible(False)
 
         add_btn = QPushButton(tr("remind.add"))
         self.remind_add_btn = add_btn
@@ -1617,30 +1883,53 @@ class ControlPanel(QWidget):
         form_row.addWidget(self.remind_time)
         form_row.addWidget(self.remind_repeat_lbl)
         form_row.addWidget(self.remind_repeat, 1)
-        form_row.addWidget(self.remind_date)
         form_row.addWidget(add_btn)
         lay.addLayout(form_row)
+
+        self.remind_date_row = QWidget()
+        date_row = QHBoxLayout(self.remind_date_row)
+        date_row.setContentsMargins(0, 0, 0, 0)
+        date_row.setSpacing(8)
+        self.remind_date_lbl = QLabel(tr("remind.date"))
+        self.remind_date_lbl.setMinimumWidth(56)
+        self.remind_date = QDateEdit()
+        self.remind_date.setCalendarPopup(False)
+        self.remind_date.setDisplayFormat("yyyy-MM-dd")
+        self.remind_date.setDate(QDate.currentDate())
+        self.remind_date.setMinimumWidth(132)
+        self.remind_date.setMaximumWidth(160)
+        self.remind_date.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.remind_date.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        date_row.addWidget(self.remind_date_lbl)
+        date_row.addWidget(self.remind_date)
+        date_row.addStretch(1)
+        self.remind_date_row.setVisible(False)
+        lay.addWidget(self.remind_date_row)
 
         self.remind_list_hint = QLabel(tr("remind.list_hint"))
         self.remind_list_hint.setObjectName("hint")
         lay.addWidget(self.remind_list_hint)
 
-        self.reminder_list = QListWidget()
-        lay.addWidget(self.reminder_list, 1)
+        self.remind_scroll = QScrollArea()
+        self.remind_scroll.setWidgetResizable(True)
+        self.remind_scroll.setFrameShape(QFrame.NoFrame)
+        self.remind_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        btn_row = QHBoxLayout()
-        del_btn = QPushButton(tr("remind.delete_sel"))
-        self.remind_del_btn = del_btn
-        del_btn.setObjectName("ghost")
-        del_btn.clicked.connect(self._delete_reminder)
-        btn_row.addWidget(del_btn)
-        btn_row.addStretch(1)
-        lay.addLayout(btn_row)
+        self.remind_container = QWidget()
+        self.remind_layout = QVBoxLayout(self.remind_container)
+        self.remind_layout.setContentsMargins(0, 0, 0, 0)
+        self.remind_layout.setSpacing(8)
+        self.remind_layout.addStretch(1)
+        self.remind_scroll.setWidget(self.remind_container)
+        lay.addWidget(self.remind_scroll, 1)
         return w
 
     def _on_remind_repeat_changed(self, index: int) -> None:
-        # 最后一项为「单次」时显示日期选择
-        self.remind_date.setVisible(index == self.remind_repeat.count() - 1)
+        is_once = index == self.remind_repeat.count() - 1
+        self.remind_date_row.setVisible(is_once)
 
     def _add_reminder(self) -> None:
         text = self.remind_text.text().strip()
@@ -1663,27 +1952,48 @@ class ControlPanel(QWidget):
 
         self.remind_text.clear()
 
-    def _delete_reminder(self) -> None:
-        item = self.reminder_list.currentItem()
-        if item is None:
-            return
-        rid = item.data(Qt.UserRole)
-        if rid is not None:
-            self.reminders.remove(int(rid))
+    def _on_reminder_delete(self, reminder_id: str) -> None:
+        self.reminders.remove(reminder_id)
 
     def refresh_reminders(self) -> None:
-        if not hasattr(self, "reminder_list"):
+        if not hasattr(self, "remind_layout"):
             return
         self._reminders_refresh_timer.start()
 
+    def _clear_remind_section(self) -> None:
+        while self.remind_layout.count() > 1:
+            item = self.remind_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _add_remind_section(self, title: str, reminders: list[Reminder], empty_text: str) -> None:
+        header = QLabel(title)
+        header.setObjectName("section")
+        self.remind_layout.insertWidget(self.remind_layout.count() - 1, header)
+        if reminders:
+            for reminder in reminders:
+                row = ReminderItemWidget(reminder)
+                row.delete_requested.connect(self._on_reminder_delete)
+                self.remind_layout.insertWidget(self.remind_layout.count() - 1, row)
+        else:
+            empty = QLabel(empty_text)
+            empty.setObjectName("hint")
+            self.remind_layout.insertWidget(self.remind_layout.count() - 1, empty)
+
     def _flush_refresh_reminders(self) -> None:
-        if not hasattr(self, "reminder_list"):
+        if not hasattr(self, "remind_layout"):
             return
-        self.reminder_list.clear()
-        for r in self.reminders.active():
-            item = QListWidgetItem(self.reminders.format_item(r))
-            item.setData(Qt.UserRole, r.id)
-            self.reminder_list.addItem(item)
+        self._clear_remind_section()
+        self._add_remind_section(
+            tr("remind.section.recurring"),
+            self.reminders.recurring(),
+            tr("remind.empty.recurring"),
+        )
+        self._add_remind_section(
+            tr("remind.section.once"),
+            self.reminders.once(),
+            tr("remind.empty.once"),
+        )
 
     # =============================================================== 记事本页
     def _build_notes_tab(self) -> QWidget:
@@ -1721,6 +2031,11 @@ class ControlPanel(QWidget):
         self.notes_scroll.setWidget(self.notes_container)
         lay.addWidget(self.notes_scroll, 1)
 
+        self.notes_page_bar = PageBar()
+        self.notes_page_bar.set_labels(tr("notes.page.prev"), tr("notes.page.next"))
+        self.notes_page_bar.page_changed.connect(self._on_notes_page_changed)
+        lay.addWidget(self.notes_page_bar)
+
         status_row = QHBoxLayout()
         save_btn = QPushButton(tr("notes.save_all"))
         self.notes_save_btn = save_btn
@@ -1736,18 +2051,29 @@ class ControlPanel(QWidget):
 
     def _add_note_entry(self) -> None:
         text = self.note_input.text().strip()
+        if not text:
+            self.note_input.setFocus()
+            return
         entry = self.notes.add(text)
         self.note_input.clear()
+        self._notes_page = 0
         self.refresh_notes(focus_id=entry.id)
 
     def _on_note_text(self, note_id: str, text: str) -> None:
         self.notes.update_text(note_id, text)
         self.notes_status.setText(tr("notes.auto_saved"))
 
+    def _on_note_height(self, note_id: str, height: int) -> None:
+        self.notes.update_body_height(note_id, height)
+
     def _on_note_delete(self, note_id: str) -> None:
         self.notes.remove(note_id)
 
-    def refresh_notes(self, focus_id: int | None = None) -> None:
+    def _on_notes_page_changed(self, page: int) -> None:
+        self._notes_page = page
+        self._flush_refresh_notes()
+
+    def refresh_notes(self, focus_id: str | None = None) -> None:
         if not hasattr(self, "notes_layout"):
             return
         if focus_id is not None:
@@ -1764,18 +2090,26 @@ class ControlPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+        entries = self.notes.entries
+        total_pages = _page_count(len(entries), NOTES_PAGE_SIZE)
+        if self._notes_page >= total_pages:
+            self._notes_page = max(0, total_pages - 1)
+        self.notes_page_bar.set_page(self._notes_page, total_pages)
+        self.notes_page_bar.set_labels(tr("notes.page.prev"), tr("notes.page.next"))
+
         focus_widget: NoteEntryWidget | None = None
-        for entry in self.notes.entries:
+        for entry in _page_slice(entries, self._notes_page, NOTES_PAGE_SIZE):
             row = NoteEntryWidget(entry)
             row.set_loading(True)
             row.text_changed.connect(self._on_note_text)
+            row.height_changed.connect(self._on_note_height)
             row.delete_requested.connect(self._on_note_delete)
             row.set_loading(False)
             self.notes_layout.insertWidget(self.notes_layout.count() - 1, row)
             if entry.id == focus_id:
                 focus_widget = row
 
-        if not self.notes.entries:
+        if not entries:
             empty = QLabel(tr("notes.empty"))
             empty.setObjectName("hint")
             empty.setAlignment(Qt.AlignCenter)
@@ -2359,10 +2693,10 @@ class ControlPanel(QWidget):
 
     def retranslate_ui(self) -> None:
         self._update_workbench_title()
-        self.tabs.setTabText(0, tr("tab.todo"))
-        self.tabs.setTabText(1, tr("tab.notes"))
-        self.tabs.setTabText(2, tr("tab.reminders"))
-        self.tabs.setTabText(3, tr("tab.timer"))
+        self.tabs.setTabText(0, tab_label("tab.todo"))
+        self.tabs.setTabText(1, tab_label("tab.notes"))
+        self.tabs.setTabText(2, tab_label("tab.reminders"))
+        self.tabs.setTabText(3, tab_label("tab.timer"))
         if self._account_tab_index >= 0:
             self.tabs.setTabText(self._account_tab_index, tr("tab.account"))
 
@@ -2424,18 +2758,30 @@ class ControlPanel(QWidget):
         self.note_input.setPlaceholderText(tr("notes.placeholder"))
         self.notes_add_btn.setText(tr("notes.add"))
         self.notes_save_btn.setText(tr("notes.save_all"))
+        if hasattr(self, "notes_page_bar"):
+            self.notes_page_bar.set_labels(tr("notes.page.prev"), tr("notes.page.next"))
+            self.notes_page_bar.set_page(self.notes_page_bar.current_page(), max(1, _page_count(len(self.notes.entries), NOTES_PAGE_SIZE)))
 
         self.remind_hint.setText(tr("remind.hint"))
         self.remind_text.setPlaceholderText(tr("remind.placeholder"))
         self.remind_time_lbl.setText(tr("remind.time"))
         self.remind_repeat_lbl.setText(tr("remind.repeat"))
+        if hasattr(self, "remind_date_lbl"):
+            self.remind_date_lbl.setText(tr("remind.date"))
         repeat_idx = self.remind_repeat.currentIndex()
         self.remind_repeat.clear()
         self.remind_repeat.addItems(remind_repeat_options())
         self.remind_repeat.setCurrentIndex(repeat_idx)
         self.remind_add_btn.setText(tr("remind.add"))
         self.remind_list_hint.setText(tr("remind.list_hint"))
-        self.remind_del_btn.setText(tr("remind.delete_sel"))
+        self.refresh_reminders()
+
+        if hasattr(self, "todo_page_bar"):
+            self.todo_page_bar.set_labels(tr("todo.page.prev"), tr("todo.page.next"))
+            self.todo_page_bar.set_page(
+                self.todo_page_bar.current_page(),
+                max(1, _page_count(len(self.todo.pending()), TODO_PAGE_SIZE)),
+            )
 
         self.timer_section.setText(tr("timer.settings"))
         self.lbl_work.setText(tr("timer.work_min"))

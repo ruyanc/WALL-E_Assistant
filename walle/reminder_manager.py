@@ -57,6 +57,18 @@ class ReminderManager(QObject):
     def active(self) -> List[Reminder]:
         return [r for r in self.items if r.enabled]
 
+    def recurring(self) -> List[Reminder]:
+        return sorted(
+            (r for r in self.active() if r.repeat != REPEAT_ONCE),
+            key=lambda r: (r.hour, r.minute, r.text),
+        )
+
+    def once(self) -> List[Reminder]:
+        return sorted(
+            (r for r in self.active() if r.repeat == REPEAT_ONCE),
+            key=lambda r: (r.target_date or "", r.hour, r.minute, r.text),
+        )
+
     def add(
         self,
         text: str,

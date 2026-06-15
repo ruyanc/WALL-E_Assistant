@@ -17,6 +17,7 @@ set "MSI=dist\WALL-E.msi"
 set "INSTALL_DIR=%LOCALAPPDATA%\Programs\WALL-E"
 set "SILENT=0"
 set "MODE=copy"
+set "UPGRADE=0"
 
 if /i "%~1"=="silent" set "SILENT=1"
 if /i "%~1"=="msi" set "MODE=msi"
@@ -28,7 +29,16 @@ if not exist "%EXE%" (
     exit /b 1
 )
 
-if "%SILENT%"=="0" if /i not "%MODE%"=="msi" if exist "%MSI%" (
+if exist "%INSTALL_DIR%\WALL-E.exe" set "UPGRADE=1"
+
+if "%UPGRADE%"=="1" (
+    echo [升级] 检测到已安装版本，将自动覆盖...
+    taskkill /F /IM WALL-E.exe >nul 2>&1
+    timeout /t 1 /nobreak >nul
+    if /i not "%MODE%"=="msi" set "SILENT=1"
+)
+
+if "%SILENT%"=="0" if "%UPGRADE%"=="0" if /i not "%MODE%"=="msi" if exist "%MSI%" (
     echo 检测到 MSI 安装包，请选择安装方式：
     echo   [1] 快速安装 — 复制 exe 到用户目录，默认
     echo   [2] MSI 向导 — 图形化安装，含桌面快捷方式
@@ -37,8 +47,12 @@ if "%SILENT%"=="0" if /i not "%MODE%"=="msi" if exist "%MSI%" (
 )
 
 if /i "!MODE!"=="msi" (
-    echo [MSI] 启动安装向导...
-    start /wait msiexec /i "%~dp0%MSI%"
+    echo [MSI] 启动安装...
+    if "%UPGRADE%"=="1" (
+        start /wait msiexec /i "%~dp0%MSI%" /passive
+    ) else (
+        start /wait msiexec /i "%~dp0%MSI%"
+    )
     if errorlevel 1 (
         echo [错误] MSI 安装未完成。
         if not "%SILENT%"=="1" pause

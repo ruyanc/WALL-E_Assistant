@@ -12,7 +12,9 @@
              Description="WALL-E 桌面宠物（支持中英文界面）"
              Comments="WALL-E Desktop Pet · 待办 / 番茄钟 / 提醒 / CloudBase 多设备同步" />
 
-    <MajorUpgrade DowngradeErrorMessage="已安装更高版本，无法降级安装。" />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="已安装更高版本，无法降级安装。"
+                  Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" />
 
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
@@ -34,8 +36,8 @@
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="WalleOptionsDlg" Order="6">NOT Installed</Publish>
       <Publish Dialog="WelcomeEulaDlg" Control="Next" Event="NewDialog" Value="WalleOptionsDlg" Order="6">NOT Installed</Publish>
-      <Publish Dialog="WalleOptionsDlg" Control="Back" Event="NewDialog" Value="WelcomeEulaDlg" Order="1">1</Publish>
-      <Publish Dialog="WalleOptionsDlg" Control="Next" Event="NewDialog" Value="PrepareDlg" Order="2">1</Publish>
+      <Publish Dialog="WalleOptionsDlg" Control="Back" Event="NewDialog" Value="WelcomeEulaDlg" Order="1">NOT Installed</Publish>
+      <Publish Dialog="WalleOptionsDlg" Control="Next" Event="NewDialog" Value="ProgressDlg" Order="2">NOT Installed</Publish>
       <Publish Dialog="WalleOptionsDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
     </UI>
 

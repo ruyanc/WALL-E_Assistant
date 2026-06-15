@@ -18,6 +18,8 @@ from .sync.ids import migrate_id, new_id
 class NoteEntry:
     id: str
     text: str
+    title: str = ""
+    body_height: int = 0
     created: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     deleted: bool = False
@@ -55,12 +57,40 @@ class NotesManager(QObject):
                 return e
         return None
 
-    def add(self, text: str = "") -> NoteEntry:
+    def add(self, text: str = "", *, title: str = "") -> NoteEntry:
         now = time.time()
-        entry = NoteEntry(id=new_id(), text=text.strip(), created=now, updated_at=now)
+        body = text.strip()
+        if not body and title.strip():
+            body = title.strip()
+        entry = NoteEntry(id=new_id(), text=body, created=now, updated_at=now)
         self._entries.insert(0, entry)
         self._after_structure_change()
         return entry
+
+    def update_title(self, note_id: str, title: str, *, save_now: bool = False) -> None:
+        entry = self.find(note_id)
+        if entry is None or entry.title == title:
+            return
+        entry.title = title
+        entry.updated_at = time.time()
+        if save_now:
+            self._flush()
+        else:
+            self._save_timer.start(500)
+
+    def update_body_height(self, note_id: str, height: int, *, save_now: bool = False) -> None:
+        entry = self.find(note_id)
+        if entry is None:
+            return
+        height = max(36, int(height))
+        if entry.body_height == height:
+            return
+        entry.body_height = height
+        entry.updated_at = time.time()
+        if save_now:
+            self._flush()
+        else:
+            self._save_timer.start(500)
 
     def update_text(self, note_id: str, text: str, *, save_now: bool = False) -> None:
         entry = self.find(note_id)
@@ -140,6 +170,10 @@ class NotesManager(QObject):
         note_id = migrate_id(raw.get("id"), namespace="note")
         raw = dict(raw)
         raw["id"] = note_id
+        raw.setdefault("title", "")
+        raw.setdefault("body_height", 0)
+        if not raw.get("text") and raw.get("title"):
+            raw["text"] = str(raw["title"])
         raw.setdefault("updated_at", raw.get("created", time.time()))
         raw.setdefault("deleted", False)
         try:

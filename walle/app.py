@@ -15,7 +15,7 @@ from .i18n import init_language, on_language_changed, set_language, tr
 from .control_panel import ControlPanel
 from .notes_manager import NotesManager
 from .pet_window import PetWindow
-from .platform import is_desktop_sync_platform
+from .platform import application_display_name, is_desktop_sync_platform, menu_font_family
 from .pomodoro import PomodoroState, PomodoroTimer
 from .reminder_manager import ReminderManager
 from .rest_overlay import RestOverlay
@@ -31,6 +31,7 @@ class WalleApp(QObject):
         self.app = app
         self.config = Config()
         init_language(self.config.get("language"))
+        self.app.setApplicationName(application_display_name())
         self.todo = TodoManager()
         self.notes = NotesManager()
         self.reminders = ReminderManager()
@@ -82,6 +83,12 @@ class WalleApp(QObject):
         self.tray.setToolTip(tr("app.name"))
 
         menu = QMenu()
+        menu.setStyleSheet(
+            f"QMenu{{background:#2b2622;color:#f1e9dc;border:1px solid #4a4138;"
+            f"font-family:{menu_font_family()};font-size:13px;padding:4px;}}"
+            "QMenu::item{padding:6px 20px;min-width:148px;}"
+            "QMenu::item:selected{background:#c88a3a;color:#2b2622;}"
+        )
         menu.addAction(tr("tray.open_panel"), self._show_panel)
         menu.addAction(tr("tray.toggle_pet"), self._toggle_pet)
         menu.addSeparator()
@@ -101,7 +108,7 @@ class WalleApp(QObject):
         self._build_tray()
         self.panel.retranslate_ui()
         self.overlay.retranslate_ui()
-        self.app.setApplicationName(tr("app.name"))
+        self.app.setApplicationName(application_display_name())
 
     def _on_tray_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.Trigger:
@@ -301,7 +308,6 @@ def main() -> int:
             pass
 
     app = QApplication(sys.argv)
-    app.setApplicationName("WALL-E")
     app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False)
 
