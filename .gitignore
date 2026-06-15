@@ -1,46 +1,87 @@
-# Python
+# =============================================================================
+# WALL-E — 仅忽略中间产物与本地缓存；源码、配置、文档与 dist 安装包保留追踪。
+# 一键清理：clean_build_artifacts.bat
+# =============================================================================
+
+# --- Python 运行时缓存 ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 *.egg-info/
 .eggs/
 *.egg
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
 
-# 虚拟环境
+# --- 本地虚拟环境（用 requirements*.txt 复现）---
 .venv/
 venv/
 env/
+mobile/.venv-android/
 
-# PyInstaller 构建产物
+# --- PyInstaller / WiX / DMG 中间目录（最终安装包在 dist/）---
 build/
-dist/
 
-# 由 make_icon.py 生成的图标（build.bat 会自动生成）
+# --- dist：默认忽略全部，仅保留可分发的安装文件 ---
+dist/*
+!dist/
+!dist/WALL-E.exe
+!dist/WALL-E.msi
+!dist/WALL-E.dmg
+!dist/WALL-E-*.dmg
+# dist/WALL-E.app 为 macOS 打包中间产物，不纳入版本库
+
+# --- 由 make_icon.py / build.bat 生成的桌面图标 ---
 assets/walle.ico
 assets/walle.png
 
-# 本地安装/测试目录
+# --- WiX 工具链本地缓存（scripts/ensure_wix.ps1 首次下载）---
+tools/wix/
+
+# --- 移动端：打包前脚本生成的副本与缓存 ---
+mobile/walle/
+mobile/.buildozer/
+mobile/.gradle/
+mobile/bin/
+*.apk
+
+# --- 移动端：prepare_assets.py 从系统字体/图标生成的资源 ---
+mobile/assets/fonts/
+mobile/assets/icon.png
+mobile/assets/presplash.png
+
+# --- 本地安装/试跑目录 ---
 usr/
 
-# 用户数据（实际保存在 %APPDATA%\WALL-E）
+# --- 用户本地配置（正式数据在 %APPDATA%\WALL-E）---
 *.local.json
+sync_config.json
 
-# IDE / 编辑器
+# --- 脚本一次性验证输出 ---
+scripts/eye_diag_log.txt
+scripts/eye_backing_test.png
+scripts/eye_verify_out.png
+scripts/eye_diag_out.png
+scripts/*_out.png
+
+# --- IDE / 编辑器 ---
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# 系统文件
+# --- 系统杂项 ---
 Thumbs.db
 Desktop.ini
 .DS_Store
+*.lnk
 
-# 环境变量与密钥
+# --- 环境变量与密钥 ---
 .env
 .env.*
-
-# Android / Buildozer 构建产物
-mobile/.buildozer/
-mobile/.venv-android/
-mobile/bin/

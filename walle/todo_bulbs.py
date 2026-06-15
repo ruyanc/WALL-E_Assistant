@@ -19,7 +19,7 @@ PRIORITY_COLORS = {
 class BulbButton(QWidget):
     """单个可点击电灯泡。"""
 
-    clicked_bulb = Signal(int)  # task_id
+    clicked_bulb = Signal(str)
 
     def __init__(self, task: Task, size: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -65,7 +65,7 @@ class BulbButton(QWidget):
 class TodoBulbBar(QWidget):
     """一排电灯泡，居中对齐。"""
 
-    bulb_clicked = Signal(int)  # task_id
+    bulb_clicked = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

@@ -1,24 +1,40 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 打包配置：生成 macOS WALL-E.app。"""
 
+import re
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
-_icon = Path("assets/walle.icns")
+_root = Path(SPECPATH)
+_version = re.search(
+    r"__version__\s*=\s*[\"']([^\"']+)[\"']",
+    (_root / "walle" / "__init__.py").read_text(encoding="utf-8"),
+).group(1)
+
+_icon = _root / "assets" / "walle.icns"
 if not _icon.is_file():
-    _icon = Path("assets/walle.png")
+    _icon = _root / "assets" / "walle.png"
+
+_datas = [
+    (_root / "assets" / "walle.png", "assets"),
+    (_root / "walle" / "assets" / "frames", "walle/assets/frames"),
+    (_root / "walle" / "assets" / "animations.json", "walle/assets"),
+]
+_icns = _root / "assets" / "walle.icns"
+if _icns.is_file():
+    _datas.append((str(_icns), "assets"))
+
+hiddenimports = collect_submodules("walle.sync")
 
 a = Analysis(
-    ["run.py"],
-    pathex=[],
+    [str(_root / "run.py")],
+    pathex=[str(_root)],
     binaries=[],
-    datas=[
-        ("assets/walle.png", "assets"),
-        ("walle/assets/frames", "walle/assets/frames"),
-        ("walle/assets/animations.json", "walle/assets"),
-    ],
-    hiddenimports=[],
+    datas=_datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -78,6 +94,8 @@ app = BUNDLE(
         "NSHighResolutionCapable": True,
         "CFBundleName": "WALL-E",
         "CFBundleDisplayName": "WALL-E Desktop Pet",
-        "CFBundleShortVersionString": "1.1.0",
+        "CFBundleShortVersionString": _version,
+        "CFBundleVersion": _version,
+        "LSMinimumSystemVersion": "11.0",
     },
 )

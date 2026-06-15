@@ -11,9 +11,11 @@ from PySide6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from .activity_monitor import ActivityKind
 from .animator import SpriteAnimator
 from .config import Config
+from .assignment_badges import AssignmentBadgeColumn
 from .todo_bulbs import TodoBulbBar
 from .i18n import priority_short, tr
 from .todo_manager import TodoManager
+from .window_util import raise_window_topmost
 
 MIN_PET_SIZE = 80
 MAX_PET_SIZE = 420
@@ -51,12 +53,14 @@ class SpeechBubble(QWidget):
         self.move(near.x(), near.y() - self.height() - 6)
         self.show()
         self.raise_()
+        raise_window_topmost(self)
         self._timer.start(duration)
 
 
 class PetWindow(QWidget):
     clicked = Signal()
     open_panel = Signal()
+    navigate_assign = Signal(str)
     start_timer = Signal()
     start_rest = Signal()
     quit_requested = Signal()
@@ -76,12 +80,23 @@ class PetWindow(QWidget):
         self.bulb_bar = TodoBulbBar(self)
         self.bulb_bar.bulb_clicked.connect(self._on_bulb_clicked)
 
+        self.inbox_badge_col = AssignmentBadgeColumn("envelope", self)
+        self.outbox_badge_col = AssignmentBadgeColumn("flag", self)
+        self.inbox_badge_col.clicked.connect(self._on_envelope_badge_clicked)
+        self.outbox_badge_col.clicked.connect(self._on_flag_badge_clicked)
+        self._inbox_badge_count = 0
+        self._outbox_badge_count = 0
+        self._badge_col_w = 0
+
         self.label = QLabel(self)
         self.label.setAttribute(Qt.WA_TranslucentBackground, True)
         self.label.setStyleSheet("background: transparent;")
         self.label.setAlignment(Qt.AlignCenter)
 
         self.bubble = SpeechBubble()
+        self._topmost_timer = QTimer(self)
+        self._topmost_timer.setInterval(3000)
+        self._topmost_timer.timeout.connect(self.raise_to_front)
 
         self._state = "idle"
         self._activity_enabled = True
@@ -102,6 +117,22 @@ class PetWindow(QWidget):
         self._restore_position()
         self._layout_children()
         self.refresh_bulbs()
+        self.refresh_assignment_badges([], [], 0, 0)
+
+    def raise_to_front(self) -> None:
+        """保持瓦力形象在所有窗口最前（含控制面板与其他应用）。"""
+        raise_window_topmost(self)
+        if self.bubble.isVisible():
+            raise_window_topmost(self.bubble)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self.raise_to_front()
+        self._topmost_timer.start()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._topmost_timer.stop()
+        super().hideEvent(event)
 
     def bind_todo(self, todo: TodoManager) -> None:
         self.todo = todo
@@ -111,7 +142,8 @@ class PetWindow(QWidget):
     # ------------------------------------------------------------------ 布局
     def _apply_dimensions(self, width: int) -> None:
         self._size = max(MIN_PET_SIZE, min(MAX_PET_SIZE, int(width)))
-        self._win_w = self._size
+        self._badge_col_w = max(32, min(80, int(self._size * 0.28)))
+        self._win_w = self._size + 2 * self._badge_col_w
         self._win_h = int(self._size * FRAME_ASPECT)
         self._bulb_h = max(20, int(self._size * 0.16))
         self.resize(self._win_w, self._bulb_h + self._win_h)
@@ -119,9 +151,39 @@ class PetWindow(QWidget):
     def _layout_children(self) -> None:
         self.bulb_bar.set_bulb_size(self._size)
         bw = self.bulb_bar.width()
-        self.bulb_bar.setGeometry((self._win_w - bw) // 2, 0, bw, self._bulb_h)
-        self.label.setGeometry(0, self._bulb_h, self._win_w, self._win_h)
+        body_x = self._badge_col_w
+        self.bulb_bar.setGeometry(body_x + (self._size - bw) // 2, 0, bw, self._bulb_h)
+        self.label.setGeometry(body_x, self._bulb_h, self._size, self._win_h)
         self.animator.set_size(self._win_h)
+
+        badge_size = self._fit_badge_size()
+        self.inbox_badge_col.set_badge_size(badge_size)
+        self.outbox_badge_col.set_badge_size(badge_size)
+
+        inbox_h = self.inbox_badge_col.height()
+        outbox_h = self.outbox_badge_col.height()
+        inbox_y = self._bulb_h + max(0, (self._win_h - inbox_h) // 2)
+        outbox_y = self._bulb_h + max(0, (self._win_h - outbox_h) // 2)
+        inbox_x = max(0, (self._badge_col_w - self.inbox_badge_col.width()) // 2)
+        outbox_x = body_x + self._size + max(
+            0, (self._badge_col_w - self.outbox_badge_col.width()) // 2,
+        )
+        self.inbox_badge_col.setGeometry(
+            inbox_x, inbox_y, self.inbox_badge_col.width(), inbox_h,
+        )
+        self.outbox_badge_col.setGeometry(
+            outbox_x, outbox_y, self.outbox_badge_col.width(), outbox_h,
+        )
+
+    def _fit_badge_size(self) -> int:
+        base = max(14, min(26, int(self._size * 0.12)))
+        max_count = max(self._inbox_badge_count, self._outbox_badge_count, 1)
+        gap = max(2, base // 8)
+        needed = max_count * base + (max_count - 1) * gap
+        max_h = int(self._win_h * 0.88)
+        if needed > max_h and max_count > 0:
+            base = max(12, (max_h - (max_count - 1) * gap) // max_count)
+        return base
 
     def refresh_bulbs(self) -> None:
         if self.todo is None:
@@ -130,7 +192,26 @@ class PetWindow(QWidget):
         self.bulb_bar.set_tasks(self.todo.pending())
         self._layout_children()
 
-    def _on_bulb_clicked(self, task_id: int) -> None:
+    def refresh_assignment_badges(
+        self,
+        inbox_priorities: list[int],
+        outbox_priorities: list[int],
+        inbox_count: int = 0,
+        outbox_count: int = 0,
+        *,
+        inbox_tooltip: str = "",
+        outbox_tooltip: str = "",
+    ) -> None:
+        self._inbox_badge_count = inbox_count
+        self._outbox_badge_count = outbox_count
+        badge_size = self._fit_badge_size()
+        self.inbox_badge_col.set_badge_size(badge_size)
+        self.outbox_badge_col.set_badge_size(badge_size)
+        self.inbox_badge_col.set_priorities(inbox_priorities, inbox_tooltip)
+        self.outbox_badge_col.set_priorities(outbox_priorities, outbox_tooltip)
+        self._layout_children()
+
+    def _on_bulb_clicked(self, task_id: str) -> None:
         if self.todo is None:
             return
         task = self.todo.find(task_id)
@@ -138,6 +219,16 @@ class PetWindow(QWidget):
             return
         pri = priority_short(task.priority)
         self.say(tr("pet.bulb_task", pri=pri, text=task.text), 5000)
+
+    def _on_envelope_badge_clicked(self) -> None:
+        self.navigate_assign.emit("inbox")
+        if self._inbox_badge_count > 0:
+            self.say(tr("pet.badge.inbox", count=self._inbox_badge_count), 5000)
+
+    def _on_flag_badge_clicked(self) -> None:
+        self.navigate_assign.emit("outbox")
+        if self._outbox_badge_count > 0:
+            self.say(tr("pet.badge.outbox", count=self._outbox_badge_count), 5000)
 
     # ------------------------------------------------------------------ 尺寸
     @property
@@ -252,6 +343,7 @@ class PetWindow(QWidget):
                 self.setCursor(Qt.ArrowCursor)
             elif self._moved:
                 self._save_position()
+                self.raise_to_front()
             else:
                 self.clicked.emit()
             self._drag_pos = None

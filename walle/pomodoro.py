@@ -47,9 +47,14 @@ class PomodoroTimer(QObject):
 
     # ------------------------------------------------------------------ 配置
     def configure(self, work_minutes: int, rest_minutes: int, cycles: int) -> None:
-        self.work_seconds = max(1, int(work_minutes)) * 60
-        self.rest_seconds = max(1, int(rest_minutes)) * 60
-        self.total_cycles = max(1, int(cycles))
+        def _positive_int(value, fallback: int) -> int:
+            if value is None:
+                return fallback
+            return max(1, int(value))
+
+        self.work_seconds = _positive_int(work_minutes, 50) * 60
+        self.rest_seconds = _positive_int(rest_minutes, 10) * 60
+        self.total_cycles = _positive_int(cycles, 3)
 
     # ------------------------------------------------------------------ 控制
     def start(self) -> None:

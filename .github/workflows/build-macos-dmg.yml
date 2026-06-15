@@ -1,0 +1,39 @@
+name: build-macos-dmg
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "walle/**"
+      - "run.py"
+      - "WALL-E-mac.spec"
+      - "build_mac.sh"
+      - "scripts/build_dmg.sh"
+      - "requirements-dev.txt"
+      - "make_icon.py"
+      - "assets/**"
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build app and DMG
+        run: |
+          chmod +x build_mac.sh scripts/build_dmg.sh
+          ./build_mac.sh
+
+      - name: Upload DMG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WALL-E-macOS-dmg
+          path: |
+            dist/WALL-E.dmg
+            dist/WALL-E-*.dmg
+          if-no-files-found: error

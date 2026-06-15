@@ -1,127 +1,115 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-
   <Product Id="*"
-
            Name="WALL-E 桌面宠物"
-
            Language="2052"
-
-           Version="1.1.0.0"
-
+           Version="1.2.0.0"
            Manufacturer="WALL-E"
-
            UpgradeCode="8B2E4F1A-9C3D-4E5F-A6B7-1D2E3F4A5B6C">
-
     <Package InstallerVersion="500"
-
              Compressed="yes"
-
              InstallScope="perUser"
-
              Description="WALL-E 桌面宠物（支持中英文界面）"
-
-             Comments="WALL-E Desktop Pet · 待办 / 番茄钟 / 提醒" />
+             Comments="WALL-E Desktop Pet · 待办 / 番茄钟 / 提醒 / CloudBase 多设备同步" />
 
     <MajorUpgrade DowngradeErrorMessage="已安装更高版本，无法降级安装。" />
-
     <MediaTemplate EmbedCab="yes" />
 
-
-
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    <Property Id="INSTALLDESKTOPSHORTCUT" Value="1" />
+    <Property Id="INSTALLSTARTUPSHORTCUT" Value="0" />
 
     <UIRef Id="WixUI_Minimal" />
+    <UI>
+      <Dialog Id="WalleOptionsDlg" Width="370" Height="270" Title="[ProductName] 安装选项">
+        <Control Id="Title" Type="Text" X="20" Y="15" Width="330" Height="20" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Bigger}安装选项" />
+        <Control Id="Description" Type="Text" X="20" Y="40" Width="330" Height="30" Transparent="yes" NoPrefix="yes" Text="请选择需要的附加选项，然后点击「下一步」继续。" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="DesktopChk" Type="CheckBox" X="20" Y="85" Width="330" Height="18" Property="INSTALLDESKTOPSHORTCUT" CheckBoxValue="1" Text="创建桌面快捷方式(&amp;D)" />
+        <Control Id="StartupChk" Type="CheckBox" X="20" Y="110" Width="330" Height="18" Property="INSTALLSTARTUPSHORTCUT" CheckBoxValue="1" Text="开机自动启动(&amp;S)" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&amp;上一步" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;下一步 &gt;" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="取消" />
+      </Dialog>
 
-
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="WalleOptionsDlg" Order="6">NOT Installed</Publish>
+      <Publish Dialog="WelcomeEulaDlg" Control="Next" Event="NewDialog" Value="WalleOptionsDlg" Order="6">NOT Installed</Publish>
+      <Publish Dialog="WalleOptionsDlg" Control="Back" Event="NewDialog" Value="WelcomeEulaDlg" Order="1">1</Publish>
+      <Publish Dialog="WalleOptionsDlg" Control="Next" Event="NewDialog" Value="PrepareDlg" Order="2">1</Publish>
+      <Publish Dialog="WalleOptionsDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+    </UI>
 
     <Icon Id="WalleIcon.ico" SourceFile="..\assets\walle.ico" />
-
     <Property Id="ARPPRODUCTICON" Value="WalleIcon.ico" />
 
-
-
     <Directory Id="TARGETDIR" Name="SourceDir">
-
       <Directory Id="LocalAppDataFolder">
-
-        <Directory Id="INSTALLDIR" Name="Programs\WALL-E">
-
-          <Component Id="MainExecutable" Guid="7A1D3E2B-8F4C-4D5E-9A6B-0C1D2E3F4A5B">
-
-            <File Id="WalleExe"
-
-                  Source="..\dist\WALL-E.exe"
-
-                  KeyPath="yes"
-
-                  Checksum="yes" />
-
-            <File Id="UserManual"
-
-                  Source="..\操作手册.md"
-
-                  Name="操作手册.md" />
-
-            <File Id="UserGuideEn"
-
-                  Source="..\USER_GUIDE.md"
-
-                  Name="USER_GUIDE.md" />
-
-          </Component>
-
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="WALL-E">
+            <Component Id="MainExecutable" Guid="7A1D3E2B-8F4C-4D5E-9A6B-0C1D2E3F4A5B">
+              <File Id="WalleExe"
+                    Source="..\dist\WALL-E.exe"
+                    KeyPath="yes"
+                    Checksum="yes" />
+              <File Id="UserManual"
+                    Source="..\操作手册.md"
+                    Name="操作手册.md" />
+              <File Id="UserGuideEn"
+                    Source="..\USER_GUIDE.md"
+                    Name="USER_GUIDE.md" />
+              <File Id="SyncConfigExample"
+                    Source="..\sync_config.example.json"
+                    Name="sync_config.example.json" />
+              <File Id="SyncConfig"
+                    Source="..\sync_config.example.json"
+                    Name="sync_config.json" />
+              <File Id="CloudBaseSetup"
+                    Source="..\GUIDE\sync\CLOUDBASE_SETUP.md"
+                    Name="CLOUDBASE_SETUP.md" />
+            </Component>
+          </Directory>
         </Directory>
-
       </Directory>
-
       <Directory Id="DesktopFolder" Name="Desktop">
-
         <Component Id="DesktopShortcut" Guid="6B0C2D1A-7E3B-4C4D-8A5B-9F0E1D2C3B4A">
-
+          <Condition>INSTALLDESKTOPSHORTCUT</Condition>
           <Shortcut Id="DesktopShortcut"
-
                     Name="WALL-E Assistant"
-
                     Target="[INSTALLDIR]WALL-E.exe"
-
                     WorkingDirectory="INSTALLDIR"
-
                     Icon="WalleIcon.ico"
-
                     Description="WALL-E Assistant" />
-
           <RegistryValue Root="HKCU"
-
                          Key="Software\WALL-E"
-
                          Name="DesktopShortcut"
-
                          Type="integer"
-
                          Value="1"
-
                          KeyPath="yes" />
-
         </Component>
-
       </Directory>
-
+      <Directory Id="StartupFolder" Name="Startup">
+        <Component Id="StartupShortcut" Guid="A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D">
+          <Condition>INSTALLSTARTUPSHORTCUT</Condition>
+          <Shortcut Id="StartupShortcut"
+                    Name="WALL-E Assistant"
+                    Target="[INSTALLDIR]WALL-E.exe"
+                    WorkingDirectory="INSTALLDIR"
+                    Icon="WalleIcon.ico"
+                    Description="WALL-E Assistant" />
+          <RegistryValue Root="HKCU"
+                         Key="Software\WALL-E"
+                         Name="StartupShortcut"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+        </Component>
+      </Directory>
     </Directory>
 
-
-
     <Feature Id="ProductFeature" Title="WALL-E 桌面宠物" Level="1">
-
       <ComponentRef Id="MainExecutable" />
-
       <ComponentRef Id="DesktopShortcut" />
-
+      <ComponentRef Id="StartupShortcut" />
     </Feature>
-
   </Product>
-
 </Wix>
-
-

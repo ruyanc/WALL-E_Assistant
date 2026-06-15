@@ -1,0 +1,16 @@
+// 将 Google / Maven Central 仓库替换为阿里云镜像（解决 dl.google.com SSL 失败）
+gradle.projectsLoaded {
+    gradle.rootProject.allprojects { project ->
+        project.buildscript.repositories.clear()
+        project.buildscript.repositories {
+            maven { url 'https://maven.aliyun.com/repository/google' }
+            maven { url 'https://maven.aliyun.com/repository/central' }
+            maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        }
+        project.repositories.clear()
+        project.repositories {
+            maven { url 'https://maven.aliyun.com/repository/google' }
+            maven { url 'https://maven.aliyun.com/repository/central' }
+        }
+    }
+}

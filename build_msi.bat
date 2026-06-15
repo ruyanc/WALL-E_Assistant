@@ -62,10 +62,11 @@ if exist "%ProgramFiles(x86)%\WiX Toolset v3.11\bin\candle.exe" if not defined W
 
 )
 
+if exist "tools\wix\candle.exe" if not defined WIXBIN (
+    set "WIXBIN=%~dp0tools\wix"
+)
 if exist "tools\wix\bin\candle.exe" if not defined WIXBIN (
-
     set "WIXBIN=%~dp0tools\wix\bin"
-
 )
 
 

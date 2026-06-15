@@ -25,10 +25,13 @@ WIZARD_PROPERTIES = [
     ("DefaultUIFont", "DlgFont8"),
     ("DlgTitleFont", "{\\DlgFontBold8}"),
     ("ErrorDialog", "ErrorDlg"),
+    ("INSTALLDESKTOPSHORTCUT", "1"),
+    ("INSTALLSTARTUPSHORTCUT", "0"),
 ]
 
 Dialog = [
     ("WelcomeDlg", 50, 50, 370, 270, 3, "[ProductName] Setup", "Next", "Next", "Cancel"),
+    ("OptionsDlg", 50, 50, 370, 270, 3, "[ProductName] Setup", "Next", "Next", "Cancel"),
     ("VerifyReadyDlg", 50, 50, 370, 270, 35, "[ProductName] Setup", "Install", "Install", "Cancel"),
     ("PrepareDlg", 50, 50, 370, 270, 1, "[ProductName] Setup", "Cancel", "Cancel", "Cancel"),
     ("ProgressDlg", 50, 50, 370, 270, 1, "[ProductName] Setup", "Cancel", "Cancel", "Cancel"),
@@ -50,6 +53,18 @@ Control = [
     ("WelcomeDlg", "Back", "PushButton", 180, 243, 56, 17, 1, None, "[ButtonText_Back]", "Next", None),
     ("WelcomeDlg", "Next", "PushButton", 236, 243, 56, 17, 3, None, "[ButtonText_Next]", "Cancel", None),
     ("WelcomeDlg", "Cancel", "PushButton", 304, 243, 56, 17, 3, None, "[ButtonText_Cancel]", "Back", None),
+    ("OptionsDlg", "Title", "Text", 20, 15, 330, 20, 196611, None,
+     "[DlgTitleFont]安装选项", None, None),
+    ("OptionsDlg", "Description", "Text", 20, 40, 330, 30, 196611, None,
+     "请选择需要的附加选项，然后点击「下一步」继续。", None, None),
+    ("OptionsDlg", "DesktopShortcutCheck", "CheckBox", 20, 85, 330, 18, 3,
+     "INSTALLDESKTOPSHORTCUT", "创建桌面快捷方式", "StartupShortcutCheck", None),
+    ("OptionsDlg", "StartupShortcutCheck", "CheckBox", 20, 110, 330, 18, 3,
+     "INSTALLSTARTUPSHORTCUT", "开机自动启动", "Back", None),
+    ("OptionsDlg", "BottomLine", "Line", 0, 234, 370, 0, 1, None, None, None, None),
+    ("OptionsDlg", "Back", "PushButton", 180, 243, 56, 17, 3, None, "[ButtonText_Back]", "Cancel", None),
+    ("OptionsDlg", "Next", "PushButton", 236, 243, 56, 17, 3, None, "[ButtonText_Next]", "DesktopShortcutCheck", None),
+    ("OptionsDlg", "Cancel", "PushButton", 304, 243, 56, 17, 3, None, "[ButtonText_Cancel]", "Next", None),
     ("VerifyReadyDlg", "Title", "Text", 20, 15, 330, 20, 196611, None,
      "[DlgTitleFont]Ready to Install", None, None),
     ("VerifyReadyDlg", "Text", "Text", 20, 55, 330, 80, 3, None,
@@ -106,11 +121,19 @@ Control = [
     ("ErrorDlg", "R", "PushButton", 198, 72, 81, 21, 3, None, "Retry", None, None),
 ]
 
+CheckBox = [
+    ("INSTALLDESKTOPSHORTCUT", "1"),
+    ("INSTALLSTARTUPSHORTCUT", "1"),
+]
+
 ControlEvent = [
     ("WelcomeDlg", "Cancel", "SpawnDialog", "CancelDlg", "1", None),
-    ("WelcomeDlg", "Next", "NewDialog", "VerifyReadyDlg", "1", None),
+    ("WelcomeDlg", "Next", "NewDialog", "OptionsDlg", "1", None),
+    ("OptionsDlg", "Cancel", "SpawnDialog", "CancelDlg", "1", None),
+    ("OptionsDlg", "Back", "NewDialog", "WelcomeDlg", "1", None),
+    ("OptionsDlg", "Next", "NewDialog", "VerifyReadyDlg", "1", None),
     ("VerifyReadyDlg", "Cancel", "SpawnDialog", "CancelDlg", "1", None),
-    ("VerifyReadyDlg", "Back", "NewDialog", "WelcomeDlg", "1", None),
+    ("VerifyReadyDlg", "Back", "NewDialog", "OptionsDlg", "1", None),
     ("VerifyReadyDlg", "Install", "EndDialog", "Return", "1", None),
     ("PrepareDlg", "Cancel", "SpawnDialog", "CancelDlg", "1", None),
     ("ProgressDlg", "Cancel", "SpawnDialog", "CancelDlg", "1", None),
@@ -144,6 +167,7 @@ InstallUISequence = [
     ("FindRelatedProducts", None, 200),
     ("PrepareDlg", None, 140),
     ("WelcomeDlg", "NOT Installed", 1230),
+    ("OptionsDlg", "NOT Installed", 1235),
     ("VerifyReadyDlg", "NOT Installed", 1240),
     ("ProgressDlg", None, 1280),
     ("ExecuteAction", None, 1300),
@@ -161,6 +185,7 @@ InstallUISequence = [
 UI_TABLES = [
     "Dialog",
     "Control",
+    "CheckBox",
     "ControlEvent",
     "EventMapping",
     "TextStyle",

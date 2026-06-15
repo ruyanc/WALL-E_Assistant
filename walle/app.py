@@ -5,20 +5,24 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QObject
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .activity_monitor import ActivityMonitor
 from .config import Config
+from .icon_util import app_icon
 from .i18n import init_language, on_language_changed, set_language, tr
 from .control_panel import ControlPanel
 from .notes_manager import NotesManager
 from .pet_window import PetWindow
+from .platform import is_desktop_sync_platform
 from .pomodoro import PomodoroState, PomodoroTimer
 from .reminder_manager import ReminderManager
 from .rest_overlay import RestOverlay
+from .sync.assignment_events import EVENT_COMPLETED
+from .sync.assignment_notify import assignment_notify_messages
+from .sync.service import SyncService
 from .todo_manager import TodoManager
-from .walle_sprite import render_walle
 
 
 class WalleApp(QObject):
@@ -37,10 +41,21 @@ class WalleApp(QObject):
             self.config.get("cycles"),
         )
         self.activity = ActivityMonitor()
+        self._quitting = False
+
+        self.sync: SyncService | None = None
+        if is_desktop_sync_platform():
+            self.sync = SyncService(self.config, self.todo, self.notes, self.reminders)
 
         self.pet = PetWindow(self.config, self.todo)
-        self.panel = ControlPanel(self.config, self.todo, self.notes, self.reminders, self.timer)
+        self.panel = ControlPanel(
+            self.config, self.todo, self.notes, self.reminders, self.timer, sync=self.sync
+        )
         self.overlay = RestOverlay()
+
+        icon = app_icon()
+        self.panel.setWindowIcon(icon)
+        self.overlay.setWindowIcon(icon)
 
         self._build_tray()
         self._connect()
@@ -49,8 +64,18 @@ class WalleApp(QObject):
         self.pet.show()
         self.pet.say(tr("pet.welcome"), 5000)
 
+        if self.sync:
+            self.sync.start()
+            self.sync.sync_applied.connect(self._on_sync_applied)
+            self.sync.assignment_event.connect(self._on_assignment_event)
+            self.todo.changed.connect(self.sync.schedule_push)
+            self.notes.changed.connect(self.sync.schedule_push)
+            self.reminders.changed.connect(self.sync.schedule_push)
+            self.panel.settings_applied.connect(self.sync.schedule_push)
+            self._refresh_assignment_badges()
+
     def _build_tray(self) -> None:
-        icon = QIcon(render_walle(64, state="idle"))
+        icon = app_icon()
         if hasattr(self, "tray"):
             self.tray.hide()
         self.tray = QSystemTrayIcon(icon, self.app)
@@ -85,6 +110,7 @@ class WalleApp(QObject):
     def _connect(self) -> None:
         self.pet.clicked.connect(self._show_panel)
         self.pet.open_panel.connect(self._show_panel)
+        self.pet.navigate_assign.connect(self._show_assign_subtab)
         self.pet.start_timer.connect(self._start_timer)
         self.pet.start_rest.connect(self._start_rest)
         self.pet.quit_requested.connect(self.quit)
@@ -111,6 +137,28 @@ class WalleApp(QObject):
 
         self.timer.state_changed.connect(self._sync_activity_mode)
 
+        if self.sync:
+            self.sync.assignments_changed.connect(self._refresh_assignment_badges)
+
+    def _refresh_assignment_badges(self) -> None:
+        if not self.sync or not self.sync.is_logged_in:
+            self.pet.refresh_assignment_badges([], [], 0, 0)
+            return
+        inbox_priorities = self.sync.assignments.accepted_inbox_priorities()
+        outbox_priorities = self.sync.assignments.accepted_outbox_priorities()
+        inbox_count = len(inbox_priorities)
+        outbox_count = len(outbox_priorities)
+        inbox_tip = tr("pet.badge.inbox.tip", count=inbox_count) if inbox_count else ""
+        outbox_tip = tr("pet.badge.outbox.tip", count=outbox_count) if outbox_count else ""
+        self.pet.refresh_assignment_badges(
+            inbox_priorities,
+            outbox_priorities,
+            inbox_count,
+            outbox_count,
+            inbox_tooltip=inbox_tip,
+            outbox_tooltip=outbox_tip,
+        )
+
     def _sync_activity_mode(self, state: PomodoroState) -> None:
         self.pet.set_activity_enabled(state != PomodoroState.RESTING)
 
@@ -118,6 +166,19 @@ class WalleApp(QObject):
         self.panel.show()
         self.panel.raise_()
         self.panel.activateWindow()
+        if self.sync and self.sync.is_logged_in and not self.sync.sync_paused:
+            self.sync.sync_assignments_only()
+        if self.pet.isVisible():
+            self.pet.raise_to_front()
+
+    def _show_assign_subtab(self, role: str) -> None:
+        self.panel.show_assign_focus(role)
+        self.panel.raise_()
+        self.panel.activateWindow()
+        if self.sync and self.sync.is_logged_in and not self.sync.sync_paused:
+            self.sync.sync_assignments_only()
+        if self.pet.isVisible():
+            self.pet.raise_to_front()
 
     def _toggle_pet(self) -> None:
         self.pet.setVisible(not self.pet.isVisible())
@@ -172,6 +233,33 @@ class WalleApp(QObject):
         if self.timer.state != PomodoroState.RESTING and self.pet.isVisible():
             self.pet.play_once("cheer", then="idle")
 
+    def _on_sync_applied(self) -> None:
+        self.pet.refresh_bulbs()
+        self._refresh_assignment_badges()
+        self.panel.flush_all_lists()
+
+    def _on_assignment_event(self, kind: str, assignment) -> None:
+        if not self.sync or not self.sync.auth.session:
+            return
+        user_id = self.sync.auth.session.user_id
+        messages = assignment_notify_messages(
+            kind,
+            assignment,
+            user_id=user_id,
+            display_name=self.sync.contact_display_name,
+            tr=tr,
+        )
+        for i, text in enumerate(messages):
+            duration = 8000 if i == 0 else 6000
+            self.pet.say(text, duration)
+            if kind == EVENT_COMPLETED:
+                self.pet.play_once("cheer", then="idle")
+            else:
+                self.pet.play_once("talk", then="idle")
+        if messages and hasattr(self.panel, "assign_inbox_scroll"):
+            self.panel.refresh_assignments()
+        self._refresh_assignment_badges()
+
     def _on_reminder_due(self, text: str, _rid: int) -> None:
         self.pet.say(tr("pet.reminder", text=text), 8000)
         self.pet.play_once("wave", then="idle")
@@ -180,12 +268,27 @@ class WalleApp(QObject):
         self.tray.showMessage(tr("app.name"), tr("pet.tray_reminder", text=text), QSystemTrayIcon.Information, 5000)
 
     def quit(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
+
+        self.timer.stop()
+        if hasattr(self.activity, "_timer"):
+            self.activity._timer.stop()
+        if hasattr(self.reminders, "_timer"):
+            self.reminders._timer.stop()
+        if self.sync:
+            self.sync.shutdown_for_quit()
+
         self.config.save()
         self.todo.save()
         self.notes.save()
         self.reminders.save()
+
         self.overlay.hide_overlay()
         self.tray.hide()
+        self.pet.close()
+        self.panel.close()
         self.app.quit()
 
 
@@ -199,6 +302,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("WALL-E")
+    app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False)
 
     walle = WalleApp(app)

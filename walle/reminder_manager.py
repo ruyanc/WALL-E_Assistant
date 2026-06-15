@@ -6,12 +6,13 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from .config import REMINDERS_PATH
 from .i18n import tr, weekday_name
+from .sync.ids import migrate_id, new_id
 
 REPEAT_ONCE = "once"
 REPEAT_DAILY = "daily"
@@ -21,26 +22,28 @@ REPEAT_WEEKLY = "weekly"
 
 @dataclass
 class Reminder:
-    id: int
+    id: str
     text: str
     hour: int
     minute: int
     repeat: str = REPEAT_DAILY
-    target_date: Optional[str] = None  # YYYY-MM-DD，仅 repeat=once 时有效
-    weekday: Optional[int] = None      # 0=周一 … 6=周日，仅 weekly
+    target_date: Optional[str] = None
+    weekday: Optional[int] = None
     enabled: bool = True
     created: float = field(default_factory=time.time)
-    last_fired_key: Optional[str] = None  # 防重复触发 "YYYY-MM-DD HH:MM"
+    last_fired_key: Optional[str] = None
+    updated_at: float = field(default_factory=time.time)
+    deleted: bool = False
 
 
 class ReminderManager(QObject):
-    due = Signal(str, int)  # 提醒文案, reminder_id
+    due = Signal(str, str)
     changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self._items: List[Reminder] = []
-        self._next_id = 1
+        self._loading = False
         self.load()
         self._timer = QTimer(self)
         self._timer.setInterval(15_000)
@@ -49,10 +52,10 @@ class ReminderManager(QObject):
 
     @property
     def items(self) -> List[Reminder]:
-        return list(self._items)
+        return [r for r in self._items if not r.deleted]
 
     def active(self) -> List[Reminder]:
-        return [r for r in self._items if r.enabled]
+        return [r for r in self.items if r.enabled]
 
     def add(
         self,
@@ -64,39 +67,41 @@ class ReminderManager(QObject):
         target_date: Optional[str] = None,
         weekday: Optional[int] = None,
     ) -> Reminder:
+        now = time.time()
         item = Reminder(
-            id=self._next_id,
+            id=new_id(),
             text=text.strip(),
             hour=int(hour),
             minute=int(minute),
             repeat=repeat,
             target_date=target_date,
             weekday=weekday,
+            updated_at=now,
         )
-        self._next_id += 1
         self._items.append(item)
         self._after_change()
         return item
 
-    def remove(self, reminder_id: int) -> bool:
-        before = len(self._items)
-        self._items = [r for r in self._items if r.id != reminder_id]
-        if len(self._items) != before:
-            self._after_change()
-            return True
-        return False
+    def remove(self, reminder_id: str) -> bool:
+        item = self.find(reminder_id)
+        if item is None:
+            return False
+        item.deleted = True
+        item.updated_at = time.time()
+        self._after_change()
+        return True
 
     def remove_by_text(self, keyword: str) -> Reminder | None:
         keyword = keyword.strip().lower()
-        for r in self._items:
+        for r in self.items:
             if keyword in r.text.lower():
                 self.remove(r.id)
                 return r
         return None
 
-    def find(self, reminder_id: int) -> Reminder | None:
+    def find(self, reminder_id: str) -> Reminder | None:
         for r in self._items:
-            if r.id == reminder_id:
+            if r.id == reminder_id and not r.deleted:
                 return r
         return None
 
@@ -111,8 +116,44 @@ class ReminderManager(QObject):
         tag = repeat_map.get(r.repeat, r.repeat)
         return f"{t} · {tag} · {r.text}"
 
+    def export_sync_records(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "record_id": item.id,
+                "collection": "reminder",
+                "payload": asdict(item),
+                "updated_at": item.updated_at,
+                "deleted": item.deleted,
+            }
+            for item in self._items
+        ]
+
+    def import_sync_records(self, rows: list[dict[str, Any]]) -> None:
+        by_id: dict[str, Reminder] = {}
+        for row in rows:
+            payload = row.get("payload") or {}
+            if not isinstance(payload, dict):
+                continue
+            reminder_id = migrate_id(payload.get("id", row.get("record_id")), namespace="reminder")
+            payload["id"] = reminder_id
+            payload.setdefault("updated_at", float(row.get("updated_at", time.time())))
+            payload["deleted"] = bool(row.get("deleted", payload.get("deleted", False)))
+            try:
+                by_id[reminder_id] = Reminder(
+                    **{k: v for k, v in payload.items() if k in Reminder.__dataclass_fields__}
+                )
+            except TypeError:
+                continue
+        self._loading = True
+        try:
+            self._items = list(by_id.values())
+            self.save()
+            self.changed.emit()
+        finally:
+            self._loading = False
+
     def _is_due(self, r: Reminder, now: datetime) -> bool:
-        if not r.enabled:
+        if not r.enabled or r.deleted:
             return False
         if now.hour != r.hour or now.minute != r.minute:
             return False
@@ -138,18 +179,18 @@ class ReminderManager(QObject):
                 self.due.emit(r.text, r.id)
                 if r.repeat == REPEAT_ONCE:
                     r.enabled = False
+                r.updated_at = time.time()
         self.save()
 
     def _after_change(self) -> None:
+        if self._loading:
+            return
         self.save()
         self.changed.emit()
 
     def save(self) -> None:
         try:
-            payload = {
-                "next_id": self._next_id,
-                "reminders": [asdict(r) for r in self._items],
-            }
+            payload = {"reminders": [asdict(r) for r in self._items]}
             with open(REMINDERS_PATH, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         except OSError:
@@ -159,6 +200,17 @@ class ReminderManager(QObject):
         self.add(tr("seed.remind.water"), 10, 0, repeat=REPEAT_DAILY)
         self.add(tr("seed.remind.rest"), 22, 0, repeat=REPEAT_DAILY)
 
+    def _normalize_reminder(self, raw: dict[str, Any]) -> Reminder | None:
+        reminder_id = migrate_id(raw.get("id"), namespace="reminder")
+        raw = dict(raw)
+        raw["id"] = reminder_id
+        raw.setdefault("updated_at", raw.get("created", time.time()))
+        raw.setdefault("deleted", False)
+        try:
+            return Reminder(**{k: v for k, v in raw.items() if k in Reminder.__dataclass_fields__})
+        except TypeError:
+            return None
+
     def load(self) -> None:
         if not REMINDERS_PATH.exists():
             self._seed_samples()
@@ -166,8 +218,12 @@ class ReminderManager(QObject):
         try:
             with open(REMINDERS_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._next_id = data.get("next_id", 1)
-            self._items = [Reminder(**r) for r in data.get("reminders", [])]
+            self._items = []
+            for raw in data.get("reminders", []):
+                item = self._normalize_reminder(raw)
+                if item:
+                    self._items.append(item)
+            if not self._items and "next_id" in data:
+                self._seed_samples()
         except (json.JSONDecodeError, OSError, TypeError):
             self._items = []
-            self._next_id = 1

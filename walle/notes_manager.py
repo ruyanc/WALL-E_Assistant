@@ -5,29 +5,41 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict, dataclass, field
-from typing import List
+from datetime import datetime
+from typing import Any, List
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from .config import NOTES_LEGACY_PATH, NOTES_PATH
+from .sync.ids import migrate_id, new_id
 
 
 @dataclass
 class NoteEntry:
-    id: int
+    id: str
     text: str
     created: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    deleted: bool = False
+
+
+def format_note_timestamp(ts: float) -> str:
+    """本地时间，用于记事条目日期展示。"""
+    try:
+        return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
+    except (OSError, OverflowError, ValueError):
+        return ""
 
 
 class NotesManager(QObject):
     """管理多条记事本条目，延迟自动落盘。"""
 
-    changed = Signal()  # 增删条目时发出，供界面重建列表
+    changed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self._entries: List[NoteEntry] = []
-        self._next_id = 1
+        self._loading = False
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.timeout.connect(self._flush)
@@ -35,49 +47,86 @@ class NotesManager(QObject):
 
     @property
     def entries(self) -> List[NoteEntry]:
-        return list(self._entries)
+        return [e for e in self._entries if not e.deleted]
 
-    def find(self, note_id: int) -> NoteEntry | None:
+    def find(self, note_id: str) -> NoteEntry | None:
         for e in self._entries:
-            if e.id == note_id:
+            if e.id == note_id and not e.deleted:
                 return e
         return None
 
     def add(self, text: str = "") -> NoteEntry:
-        entry = NoteEntry(id=self._next_id, text=text.strip())
-        self._next_id += 1
-        self._entries.insert(0, entry)  # 新条目置顶
+        now = time.time()
+        entry = NoteEntry(id=new_id(), text=text.strip(), created=now, updated_at=now)
+        self._entries.insert(0, entry)
         self._after_structure_change()
         return entry
 
-    def update_text(self, note_id: int, text: str, *, save_now: bool = False) -> None:
+    def update_text(self, note_id: str, text: str, *, save_now: bool = False) -> None:
         entry = self.find(note_id)
         if entry is None or entry.text == text:
             return
         entry.text = text
+        entry.updated_at = time.time()
         if save_now:
             self._flush()
         else:
             self._save_timer.start(500)
 
-    def remove(self, note_id: int) -> bool:
-        before = len(self._entries)
-        self._entries = [e for e in self._entries if e.id != note_id]
-        if len(self._entries) != before:
-            self._after_structure_change()
-            return True
-        return False
+    def remove(self, note_id: str) -> bool:
+        entry = self.find(note_id)
+        if entry is None:
+            return False
+        entry.deleted = True
+        entry.updated_at = time.time()
+        self._after_structure_change()
+        return True
+
+    def export_sync_records(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "record_id": entry.id,
+                "collection": "note",
+                "payload": asdict(entry),
+                "updated_at": entry.updated_at,
+                "deleted": entry.deleted,
+            }
+            for entry in self._entries
+        ]
+
+    def import_sync_records(self, rows: list[dict[str, Any]]) -> None:
+        by_id: dict[str, NoteEntry] = {}
+        for row in rows:
+            payload = row.get("payload") or {}
+            if not isinstance(payload, dict):
+                continue
+            note_id = migrate_id(payload.get("id", row.get("record_id")), namespace="note")
+            payload["id"] = note_id
+            payload.setdefault("updated_at", float(row.get("updated_at", time.time())))
+            payload["deleted"] = bool(row.get("deleted", payload.get("deleted", False)))
+            try:
+                by_id[note_id] = NoteEntry(**{k: v for k, v in payload.items() if k in NoteEntry.__dataclass_fields__})
+            except TypeError:
+                continue
+        self._loading = True
+        try:
+            self._entries = list(by_id.values())
+            self._flush()
+            self.changed.emit()
+        finally:
+            self._loading = False
 
     def _after_structure_change(self) -> None:
+        if self._loading:
+            return
         self._flush()
         self.changed.emit()
 
     def _flush(self) -> None:
+        if self._loading:
+            return
         try:
-            payload = {
-                "next_id": self._next_id,
-                "entries": [asdict(e) for e in self._entries],
-            }
+            payload = {"entries": [asdict(e) for e in self._entries]}
             with open(NOTES_PATH, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         except OSError:
@@ -87,28 +136,40 @@ class NotesManager(QObject):
         self._save_timer.stop()
         self._flush()
 
+    def _normalize_entry(self, raw: dict[str, Any]) -> NoteEntry | None:
+        note_id = migrate_id(raw.get("id"), namespace="note")
+        raw = dict(raw)
+        raw["id"] = note_id
+        raw.setdefault("updated_at", raw.get("created", time.time()))
+        raw.setdefault("deleted", False)
+        try:
+            return NoteEntry(**{k: v for k, v in raw.items() if k in NoteEntry.__dataclass_fields__})
+        except TypeError:
+            return None
+
     def load(self) -> None:
         if NOTES_PATH.exists():
             try:
                 with open(NOTES_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                self._next_id = data.get("next_id", 1)
-                self._entries = [NoteEntry(**e) for e in data.get("entries", [])]
+                self._entries = []
+                for raw in data.get("entries", []):
+                    entry = self._normalize_entry(raw)
+                    if entry:
+                        self._entries.append(entry)
                 return
             except (json.JSONDecodeError, OSError, TypeError):
                 pass
 
-        # 从旧版单文件 notes.txt 迁移
         if NOTES_LEGACY_PATH.exists():
             try:
                 legacy = NOTES_LEGACY_PATH.read_text(encoding="utf-8").strip()
                 if legacy:
-                    self._entries = [NoteEntry(id=1, text=legacy)]
-                    self._next_id = 2
+                    now = time.time()
+                    self._entries = [NoteEntry(id=new_id(), text=legacy, created=now, updated_at=now)]
                     self._flush()
                     return
             except OSError:
                 pass
 
         self._entries = []
-        self._next_id = 1

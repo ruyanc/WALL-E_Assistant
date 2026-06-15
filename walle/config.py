@@ -33,6 +33,9 @@ TODO_PATH = get_data_dir() / "todos.json"
 NOTES_PATH = get_data_dir() / "notes.json"
 NOTES_LEGACY_PATH = get_data_dir() / "notes.txt"
 REMINDERS_PATH = get_data_dir() / "reminders.json"
+AUTH_PATH = get_data_dir() / "auth.json"
+SYNC_META_PATH = get_data_dir() / "sync_meta.json"
+SYNC_CONFIG_PATH = get_data_dir() / "sync_config.json"
 
 # 默认设置
 DEFAULTS: Dict[str, Any] = {
@@ -51,6 +54,12 @@ DEFAULTS: Dict[str, Any] = {
     "rest_sound": True,
     # 界面语言：zh 简体中文 / en English
     "language": "zh",
+    # 可同步设置的更新时间戳（秒）
+    "settings_updated_at": 0.0,
+    # 授权码（CloudBase 环境 ID，在账号页填写并保存）
+    "cloudbase_env_id": "",
+    # 暂停自动同步（仍可手动「立即同步」）
+    "sync_paused": False,
 }
 
 
@@ -71,6 +80,15 @@ class Config:
             except (json.JSONDecodeError, OSError):
                 # 配置损坏时回退到默认值，避免程序无法启动
                 self._data = dict(DEFAULTS)
+        self._sanitize_loaded_values()
+
+    def _sanitize_loaded_values(self) -> None:
+        """JSON null 不应覆盖有默认值的设置项（避免 int(None) 启动崩溃）。"""
+        for key, default in DEFAULTS.items():
+            if default is None:
+                continue
+            if self._data.get(key) is None:
+                self._data[key] = default
 
     def save(self) -> None:
         try:
@@ -80,12 +98,33 @@ class Config:
             pass
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, DEFAULTS.get(key, default))
+        if key not in self._data:
+            return DEFAULTS.get(key, default)
+        value = self._data[key]
+        if value is None and key in DEFAULTS and DEFAULTS[key] is not None:
+            return DEFAULTS[key]
+        return value
 
     def set(self, key: str, value: Any) -> None:
         self._data[key] = value
+        from .sync.engine import SYNC_SETTINGS_KEYS
+
+        if key in SYNC_SETTINGS_KEYS:
+            import time
+
+            self._data["settings_updated_at"] = time.time()
         self.save()
 
     def update(self, values: Dict[str, Any]) -> None:
+        from .sync.engine import SYNC_SETTINGS_KEYS
+
+        settings_changed = any(
+            key in SYNC_SETTINGS_KEYS and self._data.get(key) != value
+            for key, value in values.items()
+        )
         self._data.update(values)
+        if settings_changed:
+            import time
+
+            self._data["settings_updated_at"] = time.time()
         self.save()

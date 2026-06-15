@@ -16,14 +16,19 @@ if not exist ".venv\Scripts\python.exe" (
 set PY=.venv\Scripts\python.exe
 
 echo [2/4] 安装依赖...
-"%PY%" -m pip install --upgrade pip
-"%PY%" -m pip install -r requirements-dev.txt
+"%PY%" -m pip install -r requirements-dev.txt -q
 
 echo [3/4] 生成应用图标...
-"%PY%" make_icon.py
+if exist "assets\walle.ico" (
+    echo   已存在 assets\walle.ico，跳过
+) else (
+    "%PY%" make_icon.py
+)
 
 echo [4/5] 使用 PyInstaller 打包...
-"%PY%" -m PyInstaller --noconfirm --clean WALL-E.spec
+set "PI_CLEAN="
+if /i "%WALLE_CLEAN_BUILD%"=="1" set "PI_CLEAN=--clean"
+"%PY%" -m PyInstaller --noconfirm %PI_CLEAN% WALL-E.spec
 
 echo [5/5] 生成 MSI 安装包...
 call build_msi.bat silent
