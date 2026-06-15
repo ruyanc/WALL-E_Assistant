@@ -4,7 +4,7 @@
 try:
     import certifi
 
-    _certifi_data = [(certifi.where(), "certifi/cacert.pem")]
+    _certifi_data = [(certifi.where(), "certifi")]
 except ImportError:
     _certifi_data = []
 

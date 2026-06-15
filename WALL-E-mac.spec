@@ -30,7 +30,7 @@ if _icns.is_file():
 try:
     import certifi
 
-    _datas.append((certifi.where(), "certifi/cacert.pem"))
+    _datas.append((certifi.where(), "certifi"))
 except ImportError:
     pass
 
